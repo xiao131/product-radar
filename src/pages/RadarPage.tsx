@@ -1,11 +1,16 @@
 import {
   ChevronLeft,
   ChevronRight,
+  RefreshCw,
   Search,
   SlidersHorizontal,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { Opportunity, Paginated } from "../../shared/types";
+import type {
+  BatchResearchResult,
+  Opportunity,
+  Paginated,
+} from "../../shared/types";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, OpportunityRow } from "../components";
 import { useNavigate } from "../router";
@@ -27,6 +32,10 @@ export function RadarPage() {
   const [platform, setPlatform] = useState("");
   const [verdict, setVerdict] = useState("");
   const [sortBy, setSortBy] = useState("score");
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [batchUpdating, setBatchUpdating] = useState(false);
+  const [batchMessage, setBatchMessage] = useState("");
+  const [batchError, setBatchError] = useState("");
   const navigate = useNavigate();
 
   const url = useMemo(() => {
@@ -59,7 +68,29 @@ export function RadarPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [url]);
+  }, [refreshVersion, url]);
+
+  async function refreshDueOpportunities() {
+    setBatchUpdating(true);
+    setBatchMessage("");
+    setBatchError("");
+    try {
+      const result = await api<BatchResearchResult>("/api/research/batch", {
+        method: "POST",
+        body: JSON.stringify({ delivery: "live" }),
+      });
+      setBatchMessage(
+        result.requested === 0
+          ? "所有候选数据都在新鲜期内，本次没有调用付费数据。"
+          : `已用 1 个批量任务检查 ${result.requested} 个候选：${result.researched} 个重新评分，${result.unchanged} 个数据无明显变化，${result.failed} 个失败。`,
+      );
+      setRefreshVersion((value) => value + 1);
+    } catch (caught) {
+      setBatchError(caught instanceof Error ? caught.message : "批量更新失败");
+    } finally {
+      setBatchUpdating(false);
+    }
+  }
 
   function resetFilters() {
     setQuery("");
@@ -128,7 +159,17 @@ export function RadarPage() {
             <option value="name">名称 A–Z</option>
           </select>
         </div>
+        <button
+          className="button button--secondary"
+          onClick={refreshDueOpportunities}
+          disabled={batchUpdating}
+        >
+          <RefreshCw className={batchUpdating ? "spin" : ""} size={16} />
+          {batchUpdating ? "批量更新中…" : "更新到期数据"}
+        </button>
       </section>
+      {batchMessage && <div className="form-success batch-message">{batchMessage}</div>}
+      {batchError && <div className="form-error batch-message">{batchError}</div>}
 
       <section className="table-panel">
         <header className="table-panel__header">

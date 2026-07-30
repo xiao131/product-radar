@@ -199,9 +199,13 @@ researchStatus
 PORT=8787
 DATABASE_PATH=./data/product-radar.db
 RESEARCH_PROVIDER=demo
+RESEARCH_FRESHNESS_DAYS=7
+RESEARCH_RATE_LIMIT_PER_HOUR=30
 
 DATAFORSEO_LOGIN=
 DATAFORSEO_PASSWORD=
+DATAFORSEO_BATCH_POLL_INTERVAL_MS=60000
+DATAFORSEO_BATCH_TIMEOUT_MS=14400000
 
 AI_GATEWAY_API_KEY=
 AI_MODEL=openai/gpt-5.6-terra
@@ -216,11 +220,13 @@ AI_MODEL=openai/gpt-5.6-terra
 
 只有三项凭据齐全且 `RESEARCH_PROVIDER=real` 时才进入真实模式，否则自动回退到有明确标识的 Demo 模式。Reddit、X 与 App Store 的自动连接器不在本次 MVP 内；这些数据可以先通过手工信号或 CSV 导入。
 
+默认情况下，7 天内的调研直接复用缓存。交互式批量更新使用一个 Live 任务查询所有到期关键词；`npm run research:batch` 使用 Standard Queue，适合由 cron 或部署平台定时执行。相同候选的并发调研会返回 `409`，调研接口默认按客户端限制为每小时 30 次。
+
 ## 7. 测试策略
 
 - 单元测试：评分、分页、过滤、状态转换、CSV 解析；
 - API 测试：Product、Signal、Opportunity 和 Research；
-- 研究合同测试：Demo Provider 稳定输出、报告版本递增；
+- 研究合同测试：Demo Provider 稳定输出、缓存复用、强制刷新后报告版本递增；
 - 浏览器测试：首页、雷达库、详情、添加产品、添加点子、处理信号；
 - 空状态和错误状态；
 - 构建与本地启动验证。

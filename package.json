@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "research:batch": "tsx server/batch-research.ts",
     "seed": "tsx server/seed.ts",
     "start": "NODE_ENV=production tsx server/index.ts"
   },

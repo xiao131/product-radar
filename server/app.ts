@@ -11,7 +11,11 @@ import {
   mapReport,
   mapSignal,
 } from "./mappers.js";
-import { researchOpportunity } from "./research.js";
+import {
+  researchDueOpportunities,
+  ResearchInProgressError,
+  researchOpportunity,
+} from "./research.js";
 import {
   createProductSchema,
   createSignalSchema,
@@ -38,6 +42,14 @@ const listQuerySchema = z.object({
   platform: z.enum(["WEB", "IOS", "WEB_AND_IOS"]).optional(),
   verdict: z.enum(["BUILD_NOW", "VALIDATE_FIRST", "WATCH", "SKIP"]).optional(),
   researchStatus: z.enum(["UNRESEARCHED", "READY", "RUNNING", "FAILED"]).optional(),
+});
+
+const researchRequestSchema = z.object({
+  force: z.boolean().default(false),
+});
+
+const batchResearchRequestSchema = z.object({
+  delivery: z.enum(["live"]).default("live"),
 });
 
 const sortColumns = {
@@ -78,12 +90,51 @@ function handleError(
     return;
   }
   const message = error instanceof Error ? error.message : "服务器发生未知错误";
-  const status = /找不到/.test(message) ? 404 : /^CSV /.test(message) ? 400 : 500;
+  const status =
+    error instanceof ResearchInProgressError
+      ? 409
+      : /找不到/.test(message)
+        ? 404
+        : /^CSV /.test(message)
+          ? 400
+          : 500;
   response.status(status).json({ error: message });
+}
+
+function createResearchRateLimiter(limit: number) {
+  const clients = new Map<string, { count: number; resetAt: number }>();
+  return (request: Request, response: Response, next: NextFunction) => {
+    const currentTime = Date.now();
+    const key = request.ip || request.socket.remoteAddress || "unknown";
+    const current = clients.get(key);
+    const state =
+      !current || current.resetAt <= currentTime
+        ? { count: 0, resetAt: currentTime + 60 * 60 * 1_000 }
+        : current;
+    state.count += 1;
+    clients.set(key, state);
+    response.setHeader("X-RateLimit-Limit", String(limit));
+    response.setHeader(
+      "X-RateLimit-Remaining",
+      String(Math.max(0, limit - state.count)),
+    );
+    if (state.count > limit) {
+      response.setHeader(
+        "Retry-After",
+        String(Math.ceil((state.resetAt - currentTime) / 1_000)),
+      );
+      response.status(429).json({ error: "调研请求过于频繁，请稍后再试" });
+      return;
+    }
+    next();
+  };
 }
 
 export function createApp(db: RadarDatabase, config: AppConfig) {
   const app = express();
+  const researchRateLimiter = createResearchRateLimiter(
+    config.researchRateLimitPerHour,
+  );
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/api/health", (_request, response) => {
@@ -100,6 +151,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       aiModel: config.aiModel,
       aiConfigured: Boolean(config.aiGatewayApiKey),
       searchConfigured: Boolean(config.dataForSeoLogin && config.dataForSeoPassword),
+      researchFreshnessDays: config.researchFreshnessDays,
+      researchRateLimitPerHour: config.researchRateLimitPerHour,
       databasePath: config.databasePath,
     });
   });
@@ -251,14 +304,46 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     response.json(mapOpportunity(row));
   });
 
-  app.post("/api/opportunities/:id/research", async (request, response, next) => {
-    try {
-      const report = await researchOpportunity(db, request.params.id, config);
-      response.status(201).json(report);
-    } catch (error) {
-      next(error);
-    }
-  });
+  app.post(
+    "/api/opportunities/:id/research",
+    researchRateLimiter,
+    async (request, response, next) => {
+      try {
+        const input = researchRequestSchema.parse(request.body ?? {});
+        const execution = await researchOpportunity(
+          db,
+          String(request.params.id),
+          config,
+          input,
+        );
+        response.status(execution.cached ? 200 : 201).json({
+          ...execution.report,
+          cached: execution.cached,
+          freshnessDays: execution.freshnessDays,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  app.post(
+    "/api/research/batch",
+    researchRateLimiter,
+    async (request, response, next) => {
+      try {
+        const input = batchResearchRequestSchema.parse(request.body ?? {});
+        const result = await researchDueOpportunities(
+          db,
+          config,
+          input.delivery,
+        );
+        response.json(result);
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   app.get("/api/products", (_request, response) => {
     response.json(

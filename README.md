@@ -171,6 +171,8 @@ Demo 模式不需要任何 API，可以测试完整流程：
 
 ```env
 RESEARCH_PROVIDER=real
+RESEARCH_FRESHNESS_DAYS=7
+RESEARCH_RATE_LIMIT_PER_HOUR=30
 AI_GATEWAY_API_KEY=...
 DATAFORSEO_LOGIN=...
 DATAFORSEO_PASSWORD=...
@@ -186,6 +188,16 @@ DATAFORSEO_PASSWORD=...
 
 只有 AI Gateway 和 DataForSEO 凭据全部存在时，系统才会进入 `REAL` 模式。否则自动回退到 `DEMO`。
 
+为控制真实模式成本，系统默认复用 7 天内的调研结果。详情页的“检查并更新”会优先命中缓存；只有确认“强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000 个到期关键词合并为一个 Live 任务。
+
+需要定时低成本更新时，可以由 cron、launchd 或部署平台的定时任务执行：
+
+```bash
+npm run research:batch
+```
+
+这个命令使用 DataForSEO Standard Queue，将所有到期关键词合并为一个任务，并等待结果就绪。任务通常比 Live 便宜，但可能需要较长时间，因此不在交互式页面请求中执行。批量采集后，只有首次调研或市场指标出现明显变化的候选才会重新调用三阶段 AI；其余候选只更新证据时间。
+
 ## 环境变量
 
 | 变量 | 默认值 | 是否必需 | 用途 |
@@ -193,10 +205,14 @@ DATAFORSEO_PASSWORD=...
 | `PORT` | `8787` | 否 | Express API 和生产页面端口 |
 | `DATABASE_PATH` | `./data/product-radar.db` | 否 | SQLite 数据库文件 |
 | `RESEARCH_PROVIDER` | `demo` | 真实模式必需 | `demo` 或 `real` |
+| `RESEARCH_FRESHNESS_DAYS` | `7` | 否 | 新鲜期内复用调研结果，避免重复付费 |
+| `RESEARCH_RATE_LIMIT_PER_HOUR` | `30` | 否 | 单个客户端每小时最多发起的调研请求 |
 | `AI_GATEWAY_API_KEY` | 空 | 真实模式必需 | AI Gateway 鉴权 |
 | `AI_MODEL` | `openai/gpt-5.6-terra` | 否 | AI Gateway 模型 ID |
 | `DATAFORSEO_LOGIN` | 空 | 真实模式必需 | DataForSEO API 登录名 |
 | `DATAFORSEO_PASSWORD` | 空 | 真实模式必需 | DataForSEO API 密码 |
+| `DATAFORSEO_BATCH_POLL_INTERVAL_MS` | `60000` | 否 | Standard Queue 结果轮询间隔 |
+| `DATAFORSEO_BATCH_TIMEOUT_MS` | `14400000` | 否 | Standard Queue 最长等待时间（默认 4 小时） |
 
 不要把 `.env` 提交到 Git。项目已在 `.gitignore` 中排除 `.env` 和本地数据库。
 

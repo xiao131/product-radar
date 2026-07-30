@@ -4,12 +4,17 @@ import type { AppConfig } from "./config.js";
 import type { RadarDatabase } from "./db.js";
 import { mapEvidence, mapOpportunity, mapProduct } from "./mappers.js";
 import { createResearchProvider, persistEvidence } from "./providers.js";
+import type {
+  ResearchCollectionRequest,
+  ResearchDelivery,
+} from "./providers.js";
 import {
   researchStageOneSchema,
   researchStageThreeSchema,
   researchStageTwoSchema,
 } from "../shared/schemas.js";
 import type {
+  BatchResearchResult,
   DimensionScore,
   EvidenceItem,
   Opportunity,
@@ -18,6 +23,19 @@ import type {
   ResearchReport,
   Verdict,
 } from "../shared/types.js";
+
+export class ResearchInProgressError extends Error {}
+
+export interface ResearchExecution {
+  report: ResearchReport;
+  cached: boolean;
+  freshnessDays: number;
+}
+
+interface ResearchOptions {
+  force?: boolean;
+  collectedEvidence?: EvidenceItem[];
+}
 
 const dimensions: Array<{
   key: DimensionScore["key"];
@@ -285,11 +303,47 @@ function getReport(db: RadarDatabase, opportunityId: string): ResearchReport | n
   };
 }
 
+function isFresh(lastResearchedAt: string | null, freshnessDays: number) {
+  if (!lastResearchedAt) return false;
+  const researchedAt = Date.parse(lastResearchedAt);
+  if (!Number.isFinite(researchedAt)) return false;
+  return Date.now() - researchedAt < freshnessDays * 24 * 60 * 60 * 1_000;
+}
+
+function startDiscoveryRun(
+  db: RadarDatabase,
+  opportunityId: string,
+  runId: string,
+  providerMode: "DEMO" | "REAL",
+  startedAt: string,
+) {
+  const staleRunCutoff = new Date(Date.now() - 60 * 60 * 1_000).toISOString();
+  db.transaction(() => {
+    const result = db
+      .prepare(
+        `UPDATE opportunities
+         SET research_status = 'RUNNING', updated_at = ?
+         WHERE id = ?
+           AND (research_status != 'RUNNING' OR updated_at < ?)`,
+      )
+      .run(startedAt, opportunityId, staleRunCutoff);
+    if (result.changes === 0) {
+      throw new ResearchInProgressError("这个候选产品正在调研，请等待当前任务完成");
+    }
+    db.prepare(
+      `INSERT INTO discovery_runs (
+        id, opportunity_id, status, provider_mode, started_at
+      ) VALUES (?, ?, 'RUNNING', ?, ?)`,
+    ).run(runId, opportunityId, providerMode, startedAt);
+  })();
+}
+
 export async function researchOpportunity(
   db: RadarDatabase,
   opportunityId: string,
   config: AppConfig,
-): Promise<ResearchReport> {
+  options: ResearchOptions = {},
+): Promise<ResearchExecution> {
   const opportunityRow = db
     .prepare("SELECT * FROM opportunities WHERE id = ?")
     .get(opportunityId) as Record<string, unknown> | undefined;
@@ -297,6 +351,17 @@ export async function researchOpportunity(
 
   const opportunity = mapOpportunity(opportunityRow);
   const previousReport = getReport(db, opportunityId);
+  if (
+    !options.force &&
+    previousReport &&
+    isFresh(opportunity.lastResearchedAt, config.researchFreshnessDays)
+  ) {
+    return {
+      report: previousReport,
+      cached: true,
+      freshnessDays: config.researchFreshnessDays,
+    };
+  }
   const version = (previousReport?.version ?? 0) + 1;
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -306,17 +371,11 @@ export async function researchOpportunity(
       ? "REAL"
       : "DEMO";
 
-  db.prepare(
-    `INSERT INTO discovery_runs (
-      id, opportunity_id, status, provider_mode, started_at
-    ) VALUES (?, ?, 'RUNNING', ?, ?)`,
-  ).run(runId, opportunityId, providerMode, startedAt);
-  db.prepare(
-    "UPDATE opportunities SET research_status = 'RUNNING', updated_at = ? WHERE id = ?",
-  ).run(startedAt, opportunityId);
+  startDiscoveryRun(db, opportunityId, runId, providerMode, startedAt);
 
   try {
-    const newEvidence = await provider.collect(opportunity, version);
+    const newEvidence =
+      options.collectedEvidence ?? (await provider.collect(opportunity, version));
     persistEvidence(db, newEvidence);
     const evidenceRows = db
       .prepare(
@@ -408,7 +467,7 @@ export async function researchOpportunity(
     });
     transaction();
 
-    return {
+    const report: ResearchReport = {
       id: reportId,
       opportunityId,
       runId,
@@ -433,6 +492,11 @@ export async function researchOpportunity(
       debateSummary: output.debateSummary,
       createdAt: finishedAt,
     };
+    return {
+      report,
+      cached: false,
+      freshnessDays: config.researchFreshnessDays,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知调研错误";
     const failedAt = new Date().toISOString();
@@ -444,4 +508,166 @@ export async function researchOpportunity(
     ).run(failedAt, opportunityId);
     throw error;
   }
+}
+
+const costSensitiveMetrics = [
+  "monthly_searches",
+  "monthly_series_change",
+  "cpc",
+] as const;
+
+function latestMetricValues(db: RadarDatabase, opportunityId: string) {
+  const rows = db
+    .prepare(
+      `SELECT metric, value
+       FROM evidence_items
+       WHERE opportunity_id = ?
+         AND metric IN ('monthly_searches', 'monthly_series_change', 'cpc')
+       ORDER BY collected_at DESC`,
+    )
+    .all(opportunityId) as Array<{ metric: string; value: number | null }>;
+  const values = new Map<string, number>();
+  for (const row of rows) {
+    if (!values.has(row.metric) && row.value !== null) {
+      values.set(row.metric, Number(row.value));
+    }
+  }
+  return values;
+}
+
+function relativeChange(previous: number, next: number) {
+  if (previous === next) return 0;
+  if (previous === 0) return Number.POSITIVE_INFINITY;
+  return Math.abs(next - previous) / Math.abs(previous);
+}
+
+function hasMaterialEvidenceChange(
+  previous: Map<string, number>,
+  evidence: EvidenceItem[],
+) {
+  if (costSensitiveMetrics.some((metric) => !previous.has(metric))) return true;
+  const next = new Map(
+    evidence
+      .filter(
+        (item): item is EvidenceItem & { value: number } =>
+          costSensitiveMetrics.includes(
+            item.metric as (typeof costSensitiveMetrics)[number],
+          ) && item.value !== null,
+      )
+      .map((item) => [item.metric, item.value]),
+  );
+  if (costSensitiveMetrics.some((metric) => !next.has(metric))) return true;
+
+  const monthlyBefore = previous.get("monthly_searches")!;
+  const monthlyAfter = next.get("monthly_searches")!;
+  const trendBefore = previous.get("monthly_series_change")!;
+  const trendAfter = next.get("monthly_series_change")!;
+  const cpcBefore = previous.get("cpc")!;
+  const cpcAfter = next.get("cpc")!;
+
+  return (
+    relativeChange(monthlyBefore, monthlyAfter) >= 0.1 ||
+    Math.abs(trendAfter - trendBefore) >= 5 ||
+    (Math.abs(cpcAfter - cpcBefore) >= 0.25 &&
+      relativeChange(cpcBefore, cpcAfter) >= 0.1)
+  );
+}
+
+export async function researchDueOpportunities(
+  db: RadarDatabase,
+  config: AppConfig,
+  delivery: ResearchDelivery = "live",
+): Promise<BatchResearchResult> {
+  const cutoff = new Date(
+    Date.now() - config.researchFreshnessDays * 24 * 60 * 60 * 1_000,
+  ).toISOString();
+  const opportunityRows = db
+    .prepare(
+      `SELECT *
+       FROM opportunities
+       WHERE research_status != 'RUNNING'
+         AND (last_researched_at IS NULL OR last_researched_at < ?)
+       ORDER BY last_researched_at ASC, created_at ASC
+       LIMIT 1000`,
+    )
+    .all(cutoff) as Record<string, unknown>[];
+  const opportunities = opportunityRows.map(mapOpportunity);
+  const provider = createResearchProvider(config);
+  const providerMode =
+    config.researchProvider === "real" &&
+    config.aiGatewayApiKey &&
+    provider.mode === "REAL"
+      ? "REAL"
+      : "DEMO";
+  const summary: BatchResearchResult = {
+    requested: opportunities.length,
+    researched: 0,
+    unchanged: 0,
+    failed: 0,
+    delivery,
+    providerMode,
+    failures: [],
+  };
+  if (!opportunities.length) return summary;
+
+  const requests: ResearchCollectionRequest[] = opportunities.map((opportunity) => ({
+    opportunity,
+    version: (getReport(db, opportunity.id)?.version ?? 0) + 1,
+  }));
+  const evidenceByOpportunity = await provider.collectBatch(requests, delivery);
+
+  async function processOpportunity(opportunity: Opportunity) {
+    const evidence = evidenceByOpportunity.get(opportunity.id);
+    if (!evidence?.length) {
+      summary.failed += 1;
+      summary.failures.push({
+        opportunityId: opportunity.id,
+        message: "批量数据中缺少这个候选产品的结果",
+      });
+      return;
+    }
+
+    try {
+      const previousReport = getReport(db, opportunity.id);
+      const previousMetrics = latestMetricValues(db, opportunity.id);
+      if (
+        previousReport &&
+        !hasMaterialEvidenceChange(previousMetrics, evidence)
+      ) {
+        persistEvidence(db, evidence);
+        const refreshedAt = evidence[0]?.collectedAt ?? new Date().toISOString();
+        db.prepare(
+          `UPDATE opportunities
+           SET research_status = 'READY', updated_at = ?, last_researched_at = ?
+           WHERE id = ?`,
+        ).run(refreshedAt, refreshedAt, opportunity.id);
+        summary.unchanged += 1;
+        return;
+      }
+
+      await researchOpportunity(db, opportunity.id, config, {
+        force: true,
+        collectedEvidence: evidence,
+      });
+      summary.researched += 1;
+    } catch (error) {
+      summary.failed += 1;
+      summary.failures.push({
+        opportunityId: opportunity.id,
+        message: error instanceof Error ? error.message : "未知调研错误",
+      });
+    }
+  }
+
+  let nextOpportunity = 0;
+  async function worker() {
+    while (nextOpportunity < opportunities.length) {
+      const opportunity = opportunities[nextOpportunity];
+      nextOpportunity += 1;
+      if (opportunity) await processOpportunity(opportunity);
+    }
+  }
+  const workerCount = Math.min(3, opportunities.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return summary;
 }

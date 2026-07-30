@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE INDEX IF NOT EXISTS idx_opportunity_score ON opportunities(score DESC);
 CREATE INDEX IF NOT EXISTS idx_opportunity_updated ON opportunities(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_opportunity_research_due ON opportunities(last_researched_at, research_status);
 CREATE INDEX IF NOT EXISTS idx_signal_status ON signals(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_report_opportunity ON research_reports(opportunity_id, version DESC);
 `;

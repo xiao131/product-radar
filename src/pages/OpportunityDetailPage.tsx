@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import type {
   DimensionScore,
   OpportunityDetail,
-  ResearchReport,
+  ResearchResponse,
 } from "../../shared/types";
 import { api } from "../api";
 import {
@@ -62,6 +62,7 @@ export function OpportunityDetailPage() {
   const [error, setError] = useState("");
   const [researching, setResearching] = useState(false);
   const [researchError, setResearchError] = useState("");
+  const [researchMessage, setResearchMessage] = useState("");
 
   function load() {
     if (!id) return;
@@ -73,14 +74,30 @@ export function OpportunityDetailPage() {
 
   useEffect(load, [id]);
 
-  async function research() {
+  async function research(force = false) {
     if (!id) return;
+    if (
+      force &&
+      !window.confirm("强制刷新会立即调用外部数据和 AI 服务，确定继续吗？")
+    ) {
+      return;
+    }
     setResearching(true);
     setResearchError("");
+    setResearchMessage("");
     try {
-      await api<ResearchReport>(`/api/opportunities/${id}/research`, {
-        method: "POST",
-      });
+      const result = await api<ResearchResponse>(
+        `/api/opportunities/${id}/research`,
+        {
+          method: "POST",
+          body: JSON.stringify({ force }),
+        },
+      );
+      setResearchMessage(
+        result.cached
+          ? `最近 ${result.freshnessDays} 天内已有结果，本次直接使用缓存，没有调用付费数据。`
+          : "已采集新数据并生成最新判断。",
+      );
       load();
     } catch (caught) {
       setResearchError(caught instanceof Error ? caught.message : "调研失败");
@@ -245,13 +262,23 @@ export function OpportunityDetailPage() {
             </p>
             <button
               className="button button--orange button--full"
-              onClick={research}
+              onClick={() => research(false)}
               disabled={researching}
             >
               <RefreshCw className={researching ? "spin" : ""} size={16} />
-              {researching ? "三阶段判断中…" : report ? "重新采集并评分" : "开始调研"}
+              {researching ? "检查数据中…" : report ? "检查并更新" : "开始调研"}
             </button>
+            {report && (
+              <button
+                className="button button--ghost button--full"
+                onClick={() => research(true)}
+                disabled={researching}
+              >
+                强制实时刷新
+              </button>
+            )}
             {researchError && <div className="form-error">{researchError}</div>}
+            {researchMessage && <div className="form-success">{researchMessage}</div>}
             <small>最近调研：{shortDate(opportunity.lastResearchedAt)}</small>
           </section>
 

@@ -9,6 +9,10 @@ const config: AppConfig = {
   databasePath: ":memory:",
   researchProvider: "demo",
   aiModel: "openai/gpt-5.6-terra",
+  researchFreshnessDays: 7,
+  researchRateLimitPerHour: 30,
+  dataForSeoBatchPollIntervalMs: 1,
+  dataForSeoBatchTimeoutMs: 100,
 };
 
 describe("Product Radar API", () => {
@@ -86,11 +90,20 @@ describe("Product Radar API", () => {
       .post(`/api/opportunities/${opportunityResponse.body.id}/research`)
       .expect(201);
     expect(firstReport.body.version).toBe(1);
+    expect(firstReport.body.cached).toBe(false);
     expect(firstReport.body.dimensionScores).toHaveLength(9);
     expect(firstReport.body.evidenceIds).toHaveLength(4);
 
+    const cachedReport = await request(app)
+      .post(`/api/opportunities/${opportunityResponse.body.id}/research`)
+      .expect(200);
+    expect(cachedReport.body.id).toBe(firstReport.body.id);
+    expect(cachedReport.body.version).toBe(1);
+    expect(cachedReport.body.cached).toBe(true);
+
     const secondReport = await request(app)
       .post(`/api/opportunities/${opportunityResponse.body.id}/research`)
+      .send({ force: true })
       .expect(201);
     expect(secondReport.body.version).toBe(2);
 
@@ -100,6 +113,65 @@ describe("Product Radar API", () => {
     expect(detail.body.reports).toHaveLength(2);
     expect(detail.body.evidence).toHaveLength(8);
     expect(detail.body.opportunity.researchStatus).toBe("READY");
+  });
+
+  it("batch-researches only due opportunities in one workflow", async () => {
+    const signalResponse = await request(app)
+      .post("/api/signals")
+      .send({
+        sourceType: "IDEA",
+        title: "Batch research candidate",
+        content: "A newly created candidate should be due for research.",
+        tags: ["batch"],
+      })
+      .expect(201);
+    const opportunityResponse = await request(app)
+      .post(`/api/signals/${signalResponse.body.id}/process`)
+      .expect(201);
+
+    const batch = await request(app)
+      .post("/api/research/batch")
+      .send({ delivery: "live" })
+      .expect(200);
+    expect(batch.body.requested).toBe(1);
+    expect(batch.body.researched).toBe(1);
+    expect(batch.body.unchanged).toBe(0);
+    expect(batch.body.failed).toBe(0);
+
+    const detail = await request(app)
+      .get(`/api/opportunities/${opportunityResponse.body.id}`)
+      .expect(200);
+    expect(detail.body.opportunity.researchStatus).toBe("READY");
+    expect(detail.body.reports).toHaveLength(1);
+  });
+
+  it("rejects overlapping research for the same opportunity", async () => {
+    const opportunity = (
+      await request(app).get("/api/opportunities").expect(200)
+    ).body.items[0];
+    database
+      .prepare(
+        "UPDATE opportunities SET research_status = 'RUNNING', updated_at = ? WHERE id = ?",
+      )
+      .run(new Date().toISOString(), opportunity.id);
+
+    await request(app)
+      .post(`/api/opportunities/${opportunity.id}/research`)
+      .send({ force: true })
+      .expect(409);
+  });
+
+  it("rate-limits research endpoints per client", async () => {
+    app = createApp(database, {
+      ...config,
+      researchRateLimitPerHour: 1,
+    });
+    await request(app)
+      .post("/api/opportunities/missing/research")
+      .expect(404);
+    await request(app)
+      .post("/api/opportunities/missing/research")
+      .expect(429);
   });
 
   it("imports CSV signals and validates required columns", async () => {

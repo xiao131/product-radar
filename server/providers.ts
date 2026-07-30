@@ -6,6 +6,17 @@ import type { EvidenceItem, Opportunity } from "../shared/types.js";
 export interface ResearchDataProvider {
   readonly mode: "DEMO" | "REAL";
   collect(opportunity: Opportunity, version: number): Promise<EvidenceItem[]>;
+  collectBatch(
+    requests: ResearchCollectionRequest[],
+    delivery?: ResearchDelivery,
+  ): Promise<Map<string, EvidenceItem[]>>;
+}
+
+export type ResearchDelivery = "live" | "standard";
+
+export interface ResearchCollectionRequest {
+  opportunity: Opportunity;
+  version: number;
 }
 
 function stableNumber(input: string, min: number, max: number) {
@@ -103,73 +114,206 @@ export class DemoResearchProvider implements ResearchDataProvider {
       },
     ];
   }
+
+  async collectBatch(requests: ResearchCollectionRequest[]) {
+    const entries = await Promise.all(
+      requests.map(async ({ opportunity, version }) => [
+        opportunity.id,
+        await this.collect(opportunity, version),
+      ] as const),
+    );
+    return new Map(entries);
+  }
 }
 
 interface DataForSeoTask<T> {
+  id?: string;
   status_code: number;
   status_message: string;
-  result?: T[];
+  result?: T[] | null;
 }
 
 interface DataForSeoResponse<T> {
+  status_code?: number;
+  status_message?: string;
   tasks?: Array<DataForSeoTask<T>>;
 }
 
 interface SearchVolumeResult {
   keyword?: string;
   search_volume?: number;
-  competition?: number;
+  competition?: number | string;
   competition_index?: number;
   cpc?: number;
   monthly_searches?: Array<{ year: number; month: number; search_volume: number }>;
 }
 
+interface DataForSeoProviderOptions {
+  standardPollIntervalMs?: number;
+  standardTimeoutMs?: number;
+}
+
+const DATA_FOR_SEO_BASE_URL =
+  "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume";
+
 export class DataForSeoProvider implements ResearchDataProvider {
   readonly mode = "REAL" as const;
+  private readonly standardPollIntervalMs: number;
+  private readonly standardTimeoutMs: number;
 
   constructor(
     private readonly login: string,
     private readonly password: string,
-  ) {}
+    options: DataForSeoProviderOptions = {},
+  ) {
+    this.standardPollIntervalMs = options.standardPollIntervalMs ?? 60_000;
+    this.standardTimeoutMs = options.standardTimeoutMs ?? 4 * 60 * 60 * 1_000;
+  }
 
   async collect(opportunity: Opportunity): Promise<EvidenceItem[]> {
-    const response = await fetch(
-      "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${this.login}:${this.password}`).toString("base64")}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify([
-          {
-            keywords: [keywordFor(opportunity)],
-            location_code: 2840,
-            language_code: "en",
-          },
-        ]),
-      },
-    );
+    const result = await this.collectBatch([{ opportunity, version: 1 }]);
+    return result.get(opportunity.id) ?? [];
+  }
 
+  async collectBatch(
+    requests: ResearchCollectionRequest[],
+    delivery: ResearchDelivery = "live",
+  ): Promise<Map<string, EvidenceItem[]>> {
+    if (!requests.length) return new Map();
+    if (requests.length > 1000) {
+      throw new Error("DataForSEO 单个批次最多支持 1000 个候选产品");
+    }
+
+    const groups = new Map<string, ResearchCollectionRequest[]>();
+    for (const request of requests) {
+      const keyword = keywordFor(request.opportunity).toLocaleLowerCase();
+      const group = groups.get(keyword) ?? [];
+      group.push(request);
+      groups.set(keyword, group);
+    }
+    const keywords = [...groups.keys()];
+    const taskInput = [
+      {
+        keywords,
+        location_code: 2840,
+        language_code: "en",
+      },
+    ];
+
+    const results =
+      delivery === "standard"
+        ? await this.collectStandard(taskInput)
+        : await this.collectLive(taskInput);
+    const resultByKeyword = new Map<string, SearchVolumeResult>();
+    results.forEach((result, index) => {
+      const requestedKeyword = keywords[index];
+      const returnedKeyword = result.keyword?.toLocaleLowerCase();
+      if (returnedKeyword) resultByKeyword.set(returnedKeyword, result);
+      if (requestedKeyword && !resultByKeyword.has(requestedKeyword)) {
+        resultByKeyword.set(requestedKeyword, result);
+      }
+    });
+
+    const now = new Date().toISOString();
+    const evidenceByOpportunity = new Map<string, EvidenceItem[]>();
+    for (const [keyword, group] of groups) {
+      const result = resultByKeyword.get(keyword);
+      if (!result) {
+        throw new Error(`DataForSEO 没有返回关键词“${keyword}”的数据`);
+      }
+      for (const { opportunity } of group) {
+        evidenceByOpportunity.set(
+          opportunity.id,
+          this.toEvidence(opportunity, result, now),
+        );
+      }
+    }
+    return evidenceByOpportunity;
+  }
+
+  private get headers() {
+    return {
+      Authorization: `Basic ${Buffer.from(`${this.login}:${this.password}`).toString("base64")}`,
+      "Content-Type": "application/json",
+    };
+  }
+
+  private async request<T>(url: string, init?: RequestInit) {
+    const response = await fetch(url, {
+      ...init,
+      headers: this.headers,
+    });
     if (!response.ok) {
       throw new Error(`DataForSEO 请求失败：HTTP ${response.status}`);
     }
+    const payload = (await response.json()) as DataForSeoResponse<T>;
+    if (payload.status_code && payload.status_code !== 20000) {
+      throw new Error(payload.status_message ?? "DataForSEO 请求失败");
+    }
+    return payload;
+  }
 
-    const payload = (await response.json()) as DataForSeoResponse<SearchVolumeResult>;
+  private async collectLive(taskInput: unknown[]) {
+    const payload = await this.request<SearchVolumeResult>(
+      `${DATA_FOR_SEO_BASE_URL}/live`,
+      {
+        method: "POST",
+        body: JSON.stringify(taskInput),
+      },
+    );
     const task = payload.tasks?.[0];
-    if (!task || task.status_code !== 20000) {
+    if (!task || task.status_code !== 20000 || !task.result) {
       throw new Error(task?.status_message ?? "DataForSEO 没有返回有效任务");
     }
+    return task.result;
+  }
 
-    const result = task.result?.[0];
-    if (!result) throw new Error("DataForSEO 没有返回关键词数据");
+  private async collectStandard(taskInput: unknown[]) {
+    const posted = await this.request<SearchVolumeResult>(
+      `${DATA_FOR_SEO_BASE_URL}/task_post`,
+      {
+        method: "POST",
+        body: JSON.stringify(taskInput),
+      },
+    );
+    const task = posted.tasks?.[0];
+    if (!task?.id || task.status_code >= 40000) {
+      throw new Error(task?.status_message ?? "DataForSEO 批量任务创建失败");
+    }
 
+    const deadline = Date.now() + this.standardTimeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.standardPollIntervalMs),
+      );
+      const payload = await this.request<SearchVolumeResult>(
+        `${DATA_FOR_SEO_BASE_URL}/task_get/${encodeURIComponent(task.id)}`,
+      );
+      const completed = payload.tasks?.[0];
+      if (completed?.status_code === 20000 && completed.result) {
+        return completed.result;
+      }
+      if (completed && completed.status_code >= 40000) {
+        throw new Error(completed.status_message);
+      }
+    }
+    throw new Error("DataForSEO 批量任务等待超时，可稍后重新执行");
+  }
+
+  private toEvidence(
+    opportunity: Opportunity,
+    result: SearchVolumeResult,
+    now: string,
+  ): EvidenceItem[] {
     const monthly = result.monthly_searches ?? [];
     const newest = monthly[0]?.search_volume ?? 0;
     const oldest = monthly.at(-1)?.search_volume ?? newest;
     const trend = oldest > 0 ? Math.round(((newest - oldest) / oldest) * 100) : 0;
-    const competition = result.competition_index ?? Math.round((result.competition ?? 0) * 100);
-    const now = new Date().toISOString();
+    const competition =
+      result.competition_index ??
+      (typeof result.competition === "number"
+        ? Math.round(result.competition * 100)
+        : 0);
 
     return [
       {
@@ -230,7 +374,10 @@ export function createResearchProvider(config: AppConfig): ResearchDataProvider 
     config.dataForSeoLogin &&
     config.dataForSeoPassword
   ) {
-    return new DataForSeoProvider(config.dataForSeoLogin, config.dataForSeoPassword);
+    return new DataForSeoProvider(config.dataForSeoLogin, config.dataForSeoPassword, {
+      standardPollIntervalMs: config.dataForSeoBatchPollIntervalMs,
+      standardTimeoutMs: config.dataForSeoBatchTimeoutMs,
+    });
   }
   return new DemoResearchProvider();
 }

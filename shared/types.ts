@@ -120,6 +120,21 @@ export interface ResearchReport {
   createdAt: string;
 }
 
+export interface ResearchResponse extends ResearchReport {
+  cached: boolean;
+  freshnessDays: number;
+}
+
+export interface BatchResearchResult {
+  requested: number;
+  researched: number;
+  unchanged: number;
+  failed: number;
+  delivery: "live" | "standard";
+  providerMode: "DEMO" | "REAL";
+  failures: Array<{ opportunityId: string; message: string }>;
+}
+
 export interface OpportunityDetail {
   opportunity: Opportunity;
   evidence: EvidenceItem[];
