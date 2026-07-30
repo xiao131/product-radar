@@ -117,7 +117,7 @@ flowchart LR
 - Node.js 22 或更高版本；
 - npm 10 或更高版本；
 - macOS、Linux 或 Windows；
-- 真实调研需要能够访问 AI Gateway 和 DataForSEO。
+- 真实调研需要能够访问 OpenAI-compatible Responses API 或 AI Gateway，以及 DataForSEO。
 
 ### 安装
 
@@ -173,9 +173,28 @@ Demo 模式不需要任何 API，可以测试完整流程：
 RESEARCH_PROVIDER=real
 RESEARCH_FRESHNESS_DAYS=7
 RESEARCH_RATE_LIMIT_PER_HOUR=30
-AI_GATEWAY_API_KEY=...
+
+AI_PROVIDER=openai
+OPENAI_BASE_URL=https://mdkj.lol
+OPENAI_API_KEY=替换为重新生成的密钥
+AI_MODEL=gpt-5.6-terra
+AI_REASONING_EFFORT=xhigh
+AI_DISABLE_RESPONSE_STORAGE=true
+
 DATAFORSEO_LOGIN=...
 DATAFORSEO_PASSWORD=...
+```
+
+`AI_PROVIDER=openai` 使用 OpenAI Responses 协议。`OPENAI_BASE_URL` 是 API
+前缀，程序会在它后面请求 `/responses`；如果中转要求 `/v1/responses`，请把
+`OPENAI_BASE_URL` 配成包含 `/v1` 的地址。
+
+如需继续使用 Vercel AI Gateway：
+
+```env
+AI_PROVIDER=gateway
+AI_GATEWAY_API_KEY=...
+AI_MODEL=openai/gpt-5.6-terra
 ```
 
 当前真实数据链路包括：
@@ -186,7 +205,7 @@ DATAFORSEO_PASSWORD=...
 - CPC 商业意图；
 - 三阶段 AI 结构化判断。
 
-只有 AI Gateway 和 DataForSEO 凭据全部存在时，系统才会进入 `REAL` 模式。否则自动回退到 `DEMO`。
+只有所选 AI Provider 和 DataForSEO 凭据全部存在时，系统才会进入 `REAL` 模式。否则自动回退到 `DEMO`。
 
 为控制真实模式成本，系统默认复用 7 天内的调研结果。详情页的“检查并更新”会优先命中缓存；只有确认“强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000 个到期关键词合并为一个 Live 任务。
 
@@ -207,8 +226,13 @@ npm run research:batch
 | `RESEARCH_PROVIDER` | `demo` | 真实模式必需 | `demo` 或 `real` |
 | `RESEARCH_FRESHNESS_DAYS` | `7` | 否 | 新鲜期内复用调研结果，避免重复付费 |
 | `RESEARCH_RATE_LIMIT_PER_HOUR` | `30` | 否 | 单个客户端每小时最多发起的调研请求 |
-| `AI_GATEWAY_API_KEY` | 空 | 真实模式必需 | AI Gateway 鉴权 |
-| `AI_MODEL` | `openai/gpt-5.6-terra` | 否 | AI Gateway 模型 ID |
+| `AI_PROVIDER` | 自动选择 | 否 | `openai`（Responses 中转/官方 API）或 `gateway` |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai` 模式 | OpenAI-compatible API 前缀 |
+| `OPENAI_API_KEY` | 空 | `openai` 真实模式 | 通过 Bearer Header 发送的服务端鉴权密钥 |
+| `AI_GATEWAY_API_KEY` | 空 | `gateway` 真实模式 | Vercel AI Gateway 鉴权 |
+| `AI_MODEL` | 按 Provider 选择 | 否 | `openai` 默认 `gpt-5.6-terra`；`gateway` 默认 `openai/gpt-5.6-terra` |
+| `AI_REASONING_EFFORT` | `xhigh` | 否 | Responses 推理强度：`none`/`low`/`medium`/`high`/`xhigh`/`max` |
+| `AI_DISABLE_RESPONSE_STORAGE` | `true` | 否 | 为 `true` 时向 Responses API 发送 `store=false` |
 | `DATAFORSEO_LOGIN` | 空 | 真实模式必需 | DataForSEO API 登录名 |
 | `DATAFORSEO_PASSWORD` | 空 | 真实模式必需 | DataForSEO API 密码 |
 | `DATAFORSEO_BATCH_POLL_INTERVAL_MS` | `60000` | 否 | Standard Queue 结果轮询间隔 |
@@ -336,7 +360,7 @@ flowchart TB
   SIGNAL["Signal Service"]
   RESEARCH["Research Orchestrator"]
   PROVIDER["Research Data Provider"]
-  AI["AI Gateway"]
+  AI["OpenAI Responses / AI Gateway"]
   SEO["DataForSEO"]
   DB[("SQLite")]
 
@@ -356,7 +380,7 @@ flowchart TB
 Frontend   React 19 / Vite 8 / 轻量 History API 路由
 Backend    Express 5 / TypeScript
 Database   SQLite / better-sqlite3
-AI         Vercel AI SDK / AI Gateway
+AI         Vercel AI SDK / OpenAI Responses / AI Gateway
 Validation Zod
 Testing    Vitest / Supertest
 ```
@@ -483,7 +507,7 @@ Product Radar :8787
    ↓
 SQLite persistent volume
    ↓
-AI Gateway + DataForSEO
+OpenAI Responses 或 AI Gateway + DataForSEO
 ```
 
 ### 推荐数据库路径
@@ -546,7 +570,7 @@ WantedBy=multi-user.target
 - 导入的社交数据不需要保存用户身份信息；
 - 页面不会直接渲染未经处理的 HTML；
 - 公开部署时必须保护 `/api/opportunities/:id/research`，否则他人可能消耗你的 AI 与数据 API 余额；
-- 建议为 AI Gateway API Key 设置月度预算；
+- 建议为 AI Provider API Key 设置月度预算；
 - 建议每日备份 SQLite。
 
 ## 当前边界

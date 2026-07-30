@@ -14,6 +14,7 @@ import { NavLink, usePath } from "./router";
 
 interface Settings {
   researchMode: "DEMO" | "REAL";
+  aiProvider: "gateway" | "openai";
   aiModel: string;
   aiConfigured: boolean;
   searchConfigured: boolean;
@@ -101,7 +102,7 @@ export function AppLayout({
           <strong>{settings?.researchMode === "REAL" ? "真实数据模式" : "演示数据模式"}</strong>
           <p>
             {settings?.researchMode === "REAL"
-              ? `${settings.aiModel} · 数据源已连接`
+              ? `${settings.aiProvider} / ${settings.aiModel} · 数据源已连接`
               : "使用可重复的模拟证据，不冒充真实市场调研。"}
           </p>
           <i className={settings?.researchMode === "REAL" ? "status-dot status-dot--live" : "status-dot"} />

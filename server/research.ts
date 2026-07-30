@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { generateText, gateway, Output } from "ai";
-import type { AppConfig } from "./config.js";
+import { generateText, Output } from "ai";
+import {
+  createResearchAiModel,
+  createResearchAiProviderOptions,
+} from "./ai.js";
+import { isAiConfigured, type AppConfig } from "./config.js";
 import type { RadarDatabase } from "./db.js";
 import { mapEvidence, mapOpportunity, mapProduct } from "./mappers.js";
 import { createResearchProvider, persistEvidence } from "./providers.js";
@@ -235,22 +239,27 @@ ${products.length ? products.map((product) => `- ${product.name} / ${product.pla
 证据：
 ${evidenceText}
 上一版结论：${previousReport ? `${previousReport.verdict}, ${previousReport.score}分` : "无"}`;
+  const model = createResearchAiModel(config);
+  const providerOptions = createResearchAiProviderOptions(config);
 
   const researcher = await generateText({
-    model: gateway(config.aiModel),
+    model,
     output: Output.object({ schema: researchStageOneSchema }),
+    providerOptions,
     system: "你是严谨的产品市场研究员。只基于给定证据提取事实，明确缺口，不得把推测写成数据。",
     prompt: context,
   });
   const debate = await generateText({
-    model: gateway(config.aiModel),
+    model,
     output: Output.object({ schema: researchStageTwoSchema }),
+    providerOptions,
     system: "你同时扮演产品机会的 Advocate 与 Critic。用同一组证据进行最强正反论证。",
     prompt: `${context}\n研究员输出：${JSON.stringify(researcher.output)}`,
   });
   const judge = await generateText({
-    model: gateway(config.aiModel),
+    model,
     output: Output.object({ schema: researchStageThreeSchema }),
+    providerOptions,
     system:
       "你是最终产品投资判断者。目标不是产生点子，而是筛选是否值得由一名独立开发者投入开发。评分必须由证据支撑；证据不足时降低置信度并优先 VALIDATE_FIRST 或 WATCH。",
     prompt: `${context}
@@ -367,7 +376,9 @@ export async function researchOpportunity(
   const startedAt = new Date().toISOString();
   const provider = createResearchProvider(config);
   const providerMode =
-    config.researchProvider === "real" && config.aiGatewayApiKey && provider.mode === "REAL"
+    config.researchProvider === "real" &&
+    isAiConfigured(config) &&
+    provider.mode === "REAL"
       ? "REAL"
       : "DEMO";
 
@@ -595,7 +606,7 @@ export async function researchDueOpportunities(
   const provider = createResearchProvider(config);
   const providerMode =
     config.researchProvider === "real" &&
-    config.aiGatewayApiKey &&
+    isAiConfigured(config) &&
     provider.mode === "REAL"
       ? "REAL"
       : "DEMO";

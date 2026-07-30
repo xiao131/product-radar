@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import type { AppConfig } from "./config.js";
+import { isAiConfigured, type AppConfig } from "./config.js";
 import { parseSignalCsv } from "./csv.js";
 import type { RadarDatabase } from "./db.js";
 import {
@@ -148,8 +148,11 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
   app.get("/api/settings", (_request, response) => {
     response.json({
       researchMode: config.researchProvider === "real" ? "REAL" : "DEMO",
+      aiProvider: config.aiProvider,
       aiModel: config.aiModel,
-      aiConfigured: Boolean(config.aiGatewayApiKey),
+      aiConfigured: isAiConfigured(config),
+      aiReasoningEffort: config.aiReasoningEffort,
+      aiResponseStorageDisabled: config.aiDisableResponseStorage,
       searchConfigured: Boolean(config.dataForSeoLogin && config.dataForSeoPassword),
       researchFreshnessDays: config.researchFreshnessDays,
       researchRateLimitPerHour: config.researchRateLimitPerHour,

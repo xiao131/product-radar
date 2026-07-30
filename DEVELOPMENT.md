@@ -36,7 +36,7 @@ Icons: Lucide React
 Backend: Express 5 + TypeScript
 Database: SQLite + better-sqlite3
 Validation: Zod
-AI: Vercel AI SDK 7 + AI Gateway（可选）
+AI: Vercel AI SDK 7 + OpenAI Responses / AI Gateway（可选）
 Tests: Vitest + Supertest
 Browser QA: 本地浏览器自动化
 ```
@@ -207,18 +207,28 @@ DATAFORSEO_PASSWORD=
 DATAFORSEO_BATCH_POLL_INTERVAL_MS=60000
 DATAFORSEO_BATCH_TIMEOUT_MS=14400000
 
+AI_PROVIDER=openai
+OPENAI_BASE_URL=https://mdkj.lol
+OPENAI_API_KEY=
+AI_MODEL=gpt-5.6-terra
+AI_REASONING_EFFORT=xhigh
+AI_DISABLE_RESPONSE_STORAGE=true
+
 AI_GATEWAY_API_KEY=
-AI_MODEL=openai/gpt-5.6-terra
 ```
 
 未配置真实凭据时，应用以 Demo 模式运行并显示明显标识。
 
 切换到真实调研需要同时配置：
 
-- `AI_GATEWAY_API_KEY`：执行 Researcher、Advocate/Critic、Judge 三阶段判断；
+- `OPENAI_API_KEY`（`AI_PROVIDER=openai`）或 `AI_GATEWAY_API_KEY`
+  （`AI_PROVIDER=gateway`）：执行 Researcher、Advocate/Critic、Judge 三阶段判断；
 - `DATAFORSEO_LOGIN` 与 `DATAFORSEO_PASSWORD`：获取关键词搜索量、月度变化、竞争和 CPC。
 
-只有三项凭据齐全且 `RESEARCH_PROVIDER=real` 时才进入真实模式，否则自动回退到有明确标识的 Demo 模式。Reddit、X 与 App Store 的自动连接器不在本次 MVP 内；这些数据可以先通过手工信号或 CSV 导入。
+只有所选 AI Provider 和 DataForSEO 凭据齐全且 `RESEARCH_PROVIDER=real`
+时才进入真实模式，否则自动回退到有明确标识的 Demo 模式。OpenAI 模式固定使用
+Responses API，并默认发送 `store=false`。Reddit、X 与 App Store 的自动连接器不在
+本次 MVP 内；这些数据可以先通过手工信号或 CSV 导入。
 
 默认情况下，7 天内的调研直接复用缓存。交互式批量更新使用一个 Live 任务查询所有到期关键词；`npm run research:batch` 使用 Standard Queue，适合由 cron 或部署平台定时执行。相同候选的并发调研会返回 `409`，调研接口默认按客户端限制为每小时 30 次。
 
