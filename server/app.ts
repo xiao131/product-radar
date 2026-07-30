@@ -24,6 +24,7 @@ import {
   JobAlreadyRunningError,
   runResearchJob,
   startBackupJob,
+  startDiscoveryJob,
   startResearchJob,
 } from "./jobs.js";
 import { UsageBudgetExceededError, UsageLedger } from "./usage.js";
@@ -69,6 +70,11 @@ const batchResearchRequestSchema = z.object({
 const opportunityOptionsQuerySchema = z.object({
   query: z.string().trim().max(120).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+const signalListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 const sortColumns = {
@@ -245,6 +251,13 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       searchConfigured: Boolean(config.dataForSeoLogin && config.dataForSeoPassword),
       researchFreshnessDays: config.researchFreshnessDays,
       researchRateLimitPerHour: config.researchRateLimitPerHour,
+      automaticDiscovery: {
+        enabled: config.autoDiscoveryEnabled,
+        maxCandidatesPerRun: config.discoveryMaxCandidatesPerRun,
+        signalLimit: config.discoveryAiSignalLimit,
+        dailyCostLimitUsd: config.maxDataForSeoCostPerDayUsd,
+        monthlyCostLimitUsd: config.maxDataForSeoCostPerMonthUsd,
+      },
       market: {
         locationCode: config.marketLocationCode,
         languageCode: config.marketLanguageCode,
@@ -547,6 +560,33 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
           finished_at: string | null;
         }
       | undefined;
+    const latestDiscovery = db
+      .prepare(
+        `SELECT status, result_json, started_at, finished_at
+         FROM job_runs
+         WHERE job_type = 'DISCOVERY'
+         ORDER BY started_at DESC
+         LIMIT 1`,
+      )
+      .get() as
+      | {
+          status: string;
+          result_json: string;
+          started_at: string;
+          finished_at: string | null;
+        }
+      | undefined;
+    let discoveryResult: Record<string, unknown> = {};
+    if (latestDiscovery?.result_json) {
+      try {
+        discoveryResult = JSON.parse(latestDiscovery.result_json) as Record<
+          string,
+          unknown
+        >;
+      } catch {
+        discoveryResult = {};
+      }
+    }
     const status: OperationsStatus = {
       mode: config.researchProvider === "real" ? "REAL" : "DEMO",
       markets: config.researchMarkets.map((market) => ({
@@ -582,8 +622,20 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       usage: new UsageLedger(db, config).today(),
       scheduler: {
         enabled: config.schedulerEnabled,
+        discoveryEnabled: config.autoDiscoveryEnabled,
+        discoveryHour: config.schedulerDiscoveryHour,
         researchHour: config.schedulerResearchHour,
         backupHour: config.schedulerBackupHour,
+      },
+      discovery: {
+        latestAt:
+          latestDiscovery?.finished_at ?? latestDiscovery?.started_at ?? null,
+        latestStatus: latestDiscovery?.status ?? null,
+        collectedSignals: Number(discoveryResult.collectedSignals ?? 0),
+        createdCandidates: Number(discoveryResult.createdCandidates ?? 0),
+        refreshedCandidates: Number(
+          discoveryResult.refreshedCandidates ?? 0,
+        ),
       },
       jobs: jobs.map((job) => ({
         id: job.id,
@@ -608,6 +660,23 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     };
     response.json(status);
   });
+
+  app.post(
+    "/api/operations/discovery",
+    researchRateLimiter,
+    async (_request, response, next) => {
+      try {
+        const job = startDiscoveryJob(db, config, "manual");
+        void job.completion.catch(() => undefined);
+        response.status(202).json({
+          jobId: job.jobId,
+          status: job.status,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   app.post(
     "/api/operations/research",
@@ -706,10 +775,35 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     response.json(mapProduct(row));
   });
 
-  app.get("/api/signals", (_request, response) => {
-    response.json(
-      rows(db, "SELECT * FROM signals ORDER BY created_at DESC", mapSignal),
+  app.get("/api/signals", (request, response) => {
+    if (request.query.page === undefined) {
+      response.json(
+        rows(db, "SELECT * FROM signals ORDER BY created_at DESC", mapSignal),
+      );
+      return;
+    }
+    const query = signalListQuerySchema.parse(request.query);
+    const total = Number(
+      (
+        db.prepare("SELECT COUNT(*) AS count FROM signals").get() as {
+          count: number;
+        }
+      ).count,
     );
+    const result: Paginated<Signal> = {
+      items: rows(
+        db,
+        "SELECT * FROM signals ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        mapSignal,
+        query.pageSize,
+        (query.page - 1) * query.pageSize,
+      ),
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
+    };
+    response.json(result);
   });
 
   app.post("/api/signals", (request, response) => {

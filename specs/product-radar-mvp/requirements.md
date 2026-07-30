@@ -2,7 +2,8 @@
 
 ## 1. Goal
 
-Build a local-first product opportunity database that helps one operator decide which Web or iOS product is worth building next.
+Build a local-first product opportunity database that actively discovers and
+helps one operator decide which Web or iOS product is worth building next.
 
 ## 2. User Stories
 
@@ -13,6 +14,8 @@ Build a local-first product opportunity database that helps one operator decide 
 5. As an operator, I want each verdict to cite evidence and show supporting, opposing, and unknown factors.
 6. As an operator, I want score history so I can see why an opportunity became more or less attractive.
 7. As an operator, I want collected evidence visible in the UI.
+8. As an operator, I want internet/search data to generate candidates
+   automatically so manual idea entry is optional.
 
 ## 3. Acceptance Requirements
 
@@ -62,10 +65,19 @@ Build a local-first product opportunity database that helps one operator decide 
 - The system shall provide a health endpoint and a deterministic seed dataset.
 - Automated tests and production build shall pass.
 
+### R9 — Automatic discovery
+
+- When the daily discovery schedule runs, the system shall collect English and
+  Chinese market signals without manual input.
+- When AI finds a supported product opportunity, the system shall deduplicate
+  it, add it to the radar, and preserve the source signals.
+- Before calling a paid data source, the system shall enforce daily and monthly
+  dollar limits.
+
 ## 4. Non-goals
 
 - Multi-tenant access control.
-- Automated Reddit/X connectors.
+- Exhaustive private or real-time Reddit/X firehose access.
 - Automated product publishing.
 - Distributed queues.
 - Search Console OAuth in the first implementation.

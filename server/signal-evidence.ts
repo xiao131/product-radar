@@ -28,23 +28,63 @@ export function evidenceFromSignal(
     0,
     Math.floor((Date.now() - Date.parse(signal.createdAt)) / (24 * 60 * 60 * 1_000)),
   );
+  const category: EvidenceItem["category"] =
+    signal.sourceType === "SEARCH"
+      ? "SEARCH"
+      : signal.sourceType === "TREND"
+        ? "TREND"
+        : signal.sourceType === "APP_STORE"
+          ? "APP_STORE"
+          : "COMPLAINT";
+  const numericMetric = (key: string) => {
+    const value = signal.metrics?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  };
+  const value =
+    category === "SEARCH"
+      ? numericMetric("searchVolume")
+      : category === "TREND"
+        ? numericMetric("monthlyTrend")
+        : category === "APP_STORE"
+          ? numericMetric("reviews")
+          : 1;
+  const unit =
+    category === "SEARCH"
+      ? "monthly searches"
+      : category === "TREND"
+        ? "%"
+        : category === "APP_STORE"
+          ? "reviews"
+          : "mention";
   return {
     id: randomUUID(),
     opportunityId,
-    category: "COMPLAINT",
-    sourceName: `${signal.sourceType} Signal`,
+    category,
+    sourceName: signal.sourceName ?? `${signal.sourceType} Signal`,
     sourceUrl: signal.sourceUrl,
-    metric: "qualified_complaint",
-    value: 1,
-    unit: "mention",
+    metric:
+      category === "SEARCH"
+        ? "discovered_search_demand"
+        : category === "TREND"
+          ? "discovered_search_growth"
+          : category === "APP_STORE"
+            ? "new_ios_app"
+            : "qualified_complaint",
+    value,
+    unit,
     direction: "UNKNOWN",
-    strength: signal.sourceType === "CUSTOMER" ? 85 : 72,
+    strength:
+      signal.sourceType === "CUSTOMER"
+        ? 85
+        : category === "SEARCH" || category === "TREND"
+          ? 78
+          : 72,
     summary: `${signal.title}：${signal.content.replace(/\s+/g, " ").slice(0, 240)}`,
     rawExcerpt: signal.content,
     collectedAt: signal.createdAt,
     freshnessDays: ageDays,
     fingerprint: signalFingerprint(signal),
-    market: null,
+    market: signal.market ?? null,
   };
 }
 

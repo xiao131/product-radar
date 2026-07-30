@@ -7,6 +7,9 @@ export type SignalSource =
   | "REDDIT"
   | "X"
   | "APP_REVIEW"
+  | "APP_STORE"
+  | "SEARCH"
+  | "TREND"
   | "FORUM"
   | "CUSTOMER"
   | "OTHER";
@@ -65,6 +68,8 @@ export interface Opportunity {
   founderFitScore: number;
   freshnessScore: number;
   changeSummary: string;
+  discoveryKey?: string | null;
+  autoDiscovered?: boolean;
   createdAt: string;
   updatedAt: string;
   lastResearchedAt: string | null;
@@ -184,6 +189,12 @@ export interface Signal {
   tags: string[];
   status: SignalStatus;
   opportunityId: string | null;
+  fingerprint?: string | null;
+  market?: string | null;
+  sourceName?: string | null;
+  metrics?: Record<string, unknown>;
+  discoveryRunId?: string | null;
+  autoCollected?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -252,12 +263,24 @@ export interface OperationsStatus {
       used: number;
       limit: number;
       reportedCostUsd: number;
+      dailyCostLimitUsd: number;
+      monthlyCostUsd: number;
+      monthlyCostLimitUsd: number;
     };
   };
   scheduler: {
     enabled: boolean;
+    discoveryEnabled: boolean;
+    discoveryHour: number;
     researchHour: number;
     backupHour: number;
+  };
+  discovery: {
+    latestAt: string | null;
+    latestStatus: string | null;
+    collectedSignals: number;
+    createdCandidates: number;
+    refreshedCandidates: number;
   };
   jobs: Array<{
     id: string;

@@ -50,14 +50,23 @@ export interface AppConfig {
   providerMaxRetries: number;
   maxAiRunsPerDay: number;
   maxDataForSeoTasksPerDay: number;
+  maxDataForSeoCostPerDayUsd: number;
+  maxDataForSeoCostPerMonthUsd: number;
   dataForSeoBatchPollIntervalMs: number;
   dataForSeoBatchTimeoutMs: number;
+  autoDiscoveryEnabled: boolean;
+  discoveryLabsLimit: number;
+  discoverySerpQueriesPerMarket: number;
+  discoveryAppDepth: number;
+  discoveryMaxCandidatesPerRun: number;
+  discoveryAiSignalLimit: number;
   authRequired: boolean;
   adminPasswordHash?: string;
   sessionSecret?: string;
   sessionTtlHours: number;
   schedulerEnabled: boolean;
   schedulerPollIntervalMs: number;
+  schedulerDiscoveryHour: number;
   schedulerResearchHour: number;
   schedulerBackupHour: number;
   backupDirectory: string;
@@ -304,6 +313,14 @@ export function loadConfig(): AppConfig {
       process.env.MAX_DATAFORSEO_TASKS_PER_DAY,
       100,
     ),
+    maxDataForSeoCostPerDayUsd: nonNegativeNumber(
+      process.env.MAX_DATAFORSEO_COST_PER_DAY_USD,
+      0.5,
+    ),
+    maxDataForSeoCostPerMonthUsd: nonNegativeNumber(
+      process.env.MAX_DATAFORSEO_COST_PER_MONTH_USD,
+      10,
+    ),
     dataForSeoBatchPollIntervalMs: positiveNumber(
       process.env.DATAFORSEO_BATCH_POLL_INTERVAL_MS,
       60_000,
@@ -311,6 +328,40 @@ export function loadConfig(): AppConfig {
     dataForSeoBatchTimeoutMs: positiveNumber(
       process.env.DATAFORSEO_BATCH_TIMEOUT_MS,
       4 * 60 * 60 * 1_000,
+    ),
+    autoDiscoveryEnabled: booleanValue(
+      process.env.AUTO_DISCOVERY_ENABLED,
+      requestedResearchProvider === "real" && hasAi && hasSearch,
+    ),
+    discoveryLabsLimit: integerInRange(
+      process.env.DISCOVERY_LABS_LIMIT,
+      100,
+      10,
+      1_000,
+    ),
+    discoverySerpQueriesPerMarket: integerInRange(
+      process.env.DISCOVERY_SERP_QUERIES_PER_MARKET,
+      8,
+      0,
+      50,
+    ),
+    discoveryAppDepth: integerInRange(
+      process.env.DISCOVERY_APP_DEPTH,
+      100,
+      0,
+      1_000,
+    ),
+    discoveryMaxCandidatesPerRun: integerInRange(
+      process.env.DISCOVERY_MAX_CANDIDATES_PER_RUN,
+      5,
+      1,
+      20,
+    ),
+    discoveryAiSignalLimit: integerInRange(
+      process.env.DISCOVERY_AI_SIGNAL_LIMIT,
+      120,
+      20,
+      300,
     ),
     authRequired,
     adminPasswordHash: process.env.ADMIN_PASSWORD_HASH,
@@ -323,6 +374,12 @@ export function loadConfig(): AppConfig {
     schedulerPollIntervalMs: positiveNumber(
       process.env.SCHEDULER_POLL_INTERVAL_MS,
       15 * 60 * 1_000,
+    ),
+    schedulerDiscoveryHour: integerInRange(
+      process.env.SCHEDULER_DISCOVERY_HOUR,
+      3,
+      0,
+      23,
     ),
     schedulerResearchHour: integerInRange(
       process.env.SCHEDULER_RESEARCH_HOUR,

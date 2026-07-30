@@ -31,6 +31,8 @@ export function mapOpportunity(row: Row): Opportunity {
     founderFitScore: Number(row.founder_fit_score),
     freshnessScore: Number(row.freshness_score),
     changeSummary: String(row.change_summary),
+    discoveryKey: row.discovery_key ? String(row.discovery_key) : null,
+    autoDiscovered: Boolean(row.auto_discovered),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     lastResearchedAt: row.last_researched_at ? String(row.last_researched_at) : null,
@@ -53,10 +55,16 @@ export function mapProduct(row: Row): Product {
 
 export function mapSignal(row: Row): Signal {
   let tags: string[] = [];
+  let metrics: Record<string, unknown> = {};
   try {
     tags = JSON.parse(String(row.tags_json));
   } catch {
     tags = [];
+  }
+  try {
+    metrics = JSON.parse(String(row.metrics_json ?? "{}"));
+  } catch {
+    metrics = {};
   }
   return {
     id: String(row.id),
@@ -67,6 +75,14 @@ export function mapSignal(row: Row): Signal {
     tags,
     status: row.status as Signal["status"],
     opportunityId: row.opportunity_id ? String(row.opportunity_id) : null,
+    fingerprint: row.fingerprint ? String(row.fingerprint) : null,
+    market: row.market ? String(row.market) : null,
+    sourceName: row.source_name ? String(row.source_name) : null,
+    metrics,
+    discoveryRunId: row.discovery_run_id
+      ? String(row.discovery_run_id)
+      : null,
+    autoCollected: Boolean(row.auto_collected),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };

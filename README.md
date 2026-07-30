@@ -56,8 +56,11 @@
 
 ### 信号收件箱
 
-可以录入：
+系统既能自动采集，也可以手工录入：
 
+- DataForSEO Labs 英文关键词需求与增速；
+- Google / Baidu Standard SERP 中的公开痛点页面；
+- 中英文市场的 App Store 新上架免费 iOS App；
 - 手工产品点子；
 - Reddit、X/Twitter、论坛讨论；
 - App Store 评论；
@@ -66,6 +69,19 @@
 - CSV 批量数据。
 
 一条用户抱怨不会被直接视为市场结论。信号需要先转成候选，再进入调研与判断。
+
+### 自动发现候选
+
+启用真实模式后，系统每天执行一条低成本发现链路：
+
+1. 从中英文市场采集搜索需求、公开网页痛点和 App Store 新品；
+2. 按来源指纹去重并保存为可追溯的原始信号；
+3. AI 将互相补强的信号聚类为产品候选，每个候选至少引用两条真实信号；
+4. 用稳定的“目标用户 + 核心任务”键去重，新增或更新雷达候选；
+5. 候选进入完整多维调研，最终输出是否值得开发。
+
+“自动发现”只负责把有依据的候选送入雷达，不会直接给出 `BUILD_NOW`。最终开发
+判断仍由搜索、趋势、痛点、竞争、商业意图、可构建性等证据和三阶段 AI 完成。
 
 ### 证据驱动的 AI 判断
 
@@ -87,9 +103,9 @@
 
 ```mermaid
 flowchart LR
-  A["点子 / 评论 / 抱怨 / CSV"] --> B["信号收件箱"]
-  B --> C["候选产品"]
-  C --> D["数据采集"]
+  A["DataForSEO / 点子 / 评论 / CSV"] --> B["去重后的信号库"]
+  B --> C["AI 聚类候选"]
+  C --> D["多维调研采集"]
   D --> E["Researcher"]
   E --> F["Advocate / Critic"]
   F --> G["Judge"]
@@ -102,9 +118,9 @@ flowchart LR
 一个典型流程：
 
 ```text
-发现一条用户抱怨
-→ 保存为 Signal
-→ 转成 Opportunity
+自动采集搜索、公开痛点与 App Store 数据
+→ 去重保存为 Signal
+→ AI 合并至少两条信号并创建 Opportunity
 → 收集搜索、趋势、竞争和商业证据
 → AI 正反论证
 → 输出 BUILD_NOW / VALIDATE_FIRST / WATCH / SKIP
@@ -200,6 +216,9 @@ AI_MODEL=openai/gpt-5.6-terra
 
 当前真实数据链路包括：
 
+- 自动发现：DataForSEO Labs Keyword Ideas（美国英文市场）；
+- 自动发现：Google Standard SERP（英文市场）和 Baidu Standard SERP（中国市场）；
+- 自动发现：Apple App Store 新上架免费 iOS App；
 - Google Ads 月搜索量；
 - 过去月份搜索序列变化；
 - 广告竞争指数；
@@ -222,7 +241,17 @@ DataForSEO 产品的简体中文代码不同，因此配置中同时保留两种
 `REAL` 模式但凭据不完整时，服务会拒绝启动，避免在你不知情的情况下回退到
 Demo。
 
-为控制真实模式成本，系统默认复用 7 天内的调研结果。详情页的“检查并更新”会优先命中缓存；只有确认“强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000 个到期关键词合并为一个任务。每日 AI 和 DataForSEO 使用量由 SQLite 持久化预算限制。
+为控制真实模式成本，自动发现不调用 Google Ads Live Search Volume，也不把
+Content Analysis 放进每日循环。它默认每天只运行一次，使用一项 Labs 请求、
+每个市场最多 8 个低价 Standard SERP 任务和一项 App Store Standard 任务。
+默认 DataForSEO 硬上限为每日 `$0.50`、每月 `$10`；每次请求发送前先预留预计
+费用，响应后再以 DataForSEO 报告的实际费用结算。达到任一上限后，当天或当月
+不会继续发起付费采集。
+
+完整调研默认复用 7 天内的结果。详情页的“检查并更新”会优先命中缓存；只有确认
+“强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000
+个到期关键词合并为一个任务。每日 AI 和 DataForSEO 使用量由 SQLite 持久化，
+服务重启不会清空。
 每日预算和定时小时都以服务器本地时区计算，部署时应明确设置服务器的
 `TZ`，例如 `Asia/Shanghai`。
 
@@ -254,6 +283,8 @@ npm run research:batch
 | `RESEARCH_RATE_LIMIT_PER_HOUR` | `30` | 否 | 单个客户端每小时最多发起的调研请求 |
 | `MAX_AI_RUNS_PER_DAY` | `30` | 否 | 每日最多 AI 调研流水线次数 |
 | `MAX_DATAFORSEO_TASKS_PER_DAY` | `100` | 否 | 每日最多 DataForSEO 计费任务数 |
+| `MAX_DATAFORSEO_COST_PER_DAY_USD` | `0.5` | 否 | 每日 DataForSEO 美元硬上限，自动发现与调研共享 |
+| `MAX_DATAFORSEO_COST_PER_MONTH_USD` | `10` | 否 | 每月 DataForSEO 美元硬上限 |
 | `MARKET_LOCATION_CODE` | `2840` | 否 | DataForSEO 市场位置代码 |
 | `MARKET_LANGUAGE_CODE` | `en` | 否 | 调研语言代码 |
 | `MARKET_COUNTRY_CODE` | `US` | 否 | 报告展示和证据记录的国家代码 |
@@ -267,7 +298,14 @@ npm run research:batch
 | `AI_MODEL` | 按 Provider 选择 | 否 | `openai` 默认 `gpt-5.6-terra`；`gateway` 默认 `openai/gpt-5.6-terra` |
 | `AI_REASONING_EFFORT` | `xhigh` | 否 | Responses 推理强度：`none`/`low`/`medium`/`high`/`xhigh`/`max` |
 | `AI_DISABLE_RESPONSE_STORAGE` | `true` | 否 | 为 `true` 时向 Responses API 发送 `store=false` |
-| `SCHEDULER_ENABLED` | 生产为 `true` | 否 | 启用自动调研和备份 |
+| `AUTO_DISCOVERY_ENABLED` | 真实模式为 `true` | 否 | 启用互联网/API 自动发现候选 |
+| `DISCOVERY_LABS_LIMIT` | `100` | 否 | 单个支持市场每次 Labs 候选关键词上限 |
+| `DISCOVERY_SERP_QUERIES_PER_MARKET` | `8` | 否 | 每市场每日痛点搜索查询数；设为 `0` 可关闭 |
+| `DISCOVERY_APP_DEPTH` | `100` | 否 | 每市场 App Store 新品扫描深度；设为 `0` 可关闭 |
+| `DISCOVERY_MAX_CANDIDATES_PER_RUN` | `5` | 否 | 每次最多由 AI 新增或更新的候选数 |
+| `DISCOVERY_AI_SIGNAL_LIMIT` | `120` | 否 | 每次交给 AI 聚类的高优先级信号数 |
+| `SCHEDULER_ENABLED` | 生产为 `true` | 否 | 启用自动发现、调研和备份 |
+| `SCHEDULER_DISCOVERY_HOUR` | `3` | 否 | 服务器本地时区的每日候选发现小时 |
 | `SCHEDULER_RESEARCH_HOUR` | `3` | 否 | 服务器本地时区的每日调研小时 |
 | `SCHEDULER_BACKUP_HOUR` | `2` | 否 | 服务器本地时区的每日备份小时 |
 | `BACKUP_DIRECTORY` | `./data/backups` | 否 | 一致性 SQLite 备份目录 |
@@ -282,7 +320,17 @@ npm run research:batch
 
 ## 使用方法
 
-### 1. 添加现有产品
+### 1. 自动发现候选
+
+真实模式下等待每日任务即可，也可以进入“系统状态”点击“立即发现候选”。任务
+完成后：
+
+- 全部采集数据会出现在信号库；
+- AI 支持的候选会自动进入雷达库；
+- 新候选处于“待调研”，不会被误标为已经值得开发；
+- 当相同需求出现新数据时，原候选会更新并重新进入调研队列。
+
+### 2. 添加现有产品
 
 进入“产品库”，添加已经上线或正在开发的产品：
 
@@ -293,7 +341,7 @@ npm run research:batch
 - 当前重点；
 - 产品网址。
 
-### 2. 添加原始信号
+### 3. 添加原始信号
 
 进入“信号收件箱”，添加点子或用户原话。建议保留完整上下文，不要只写抽象方向。
 
@@ -309,11 +357,11 @@ npm run research:batch
 做一个图片工具。
 ```
 
-### 3. 转成候选
+### 4. 转成候选
 
 点击“转为候选”。系统会创建一个尚未调研的产品机会，并关联原始信号。
 
-### 4. 执行调研
+### 5. 执行调研
 
 在候选详情页点击“开始调研”。完成后可以看到：
 
@@ -328,7 +376,7 @@ npm run research:batch
 - 真实验证门槛；
 - 本次使用的证据。
 
-### 5. 重新评分
+### 6. 重新评分
 
 点击“重新采集并评分”。系统会追加新证据和新报告版本，不会删除旧结论。
 
@@ -359,6 +407,9 @@ IDEA
 REDDIT
 X
 APP_REVIEW
+APP_STORE
+SEARCH
+TREND
 FORUM
 CUSTOMER
 OTHER
@@ -398,6 +449,7 @@ flowchart TB
   UI["React 19 + Vite"]
   API["Express 5 API"]
   SIGNAL["Signal Service"]
+  DISCOVERY["Automatic Discovery"]
   RESEARCH["Research Orchestrator"]
   PROVIDER["Research Data Provider"]
   AI["OpenAI Responses / AI Gateway"]
@@ -406,7 +458,11 @@ flowchart TB
 
   UI --> API
   API --> SIGNAL
+  API --> DISCOVERY
   API --> RESEARCH
+  DISCOVERY --> SEO
+  DISCOVERY --> AI
+  DISCOVERY --> DB
   SIGNAL --> DB
   RESEARCH --> PROVIDER
   PROVIDER --> SEO
@@ -451,6 +507,7 @@ settings
 | `GET` | `/api/settings` | 当前运行模式与连接状态 |
 | `GET` | `/api/dashboard` | 首页数据 |
 | `GET` | `/api/operations/status` | 预算、任务、备份与新鲜度 |
+| `POST` | `/api/operations/discovery` | 手工启动一次自动候选发现 |
 | `POST` | `/api/operations/research` | 手工更新到期数据 |
 | `POST` | `/api/operations/backup` | 创建并验证备份 |
 
@@ -669,9 +726,13 @@ npm run backup:restore -- \
 
 当前版本已经完整实现产品管理、信号管理、雷达库、调研判断、证据展示与版本化评分，但仍有这些限制：
 
-- DataForSEO Trends 尚未单独接入；
+- 中国大陆没有 DataForSEO Labs Google 关键词库，因此中文发现使用 Baidu
+  Standard SERP；英文市场额外使用 Labs Keyword Ideas；
+- 自动发现用 Labs 自带的搜索变化字段标记趋势，尚未单独调用 Google Trends
+  endpoint；
 - Apple 数据当前以关键词竞品、评分与评论量为主，尚未自动抓取每个竞品的完整评论主题；
-- Reddit 与 X 自动采集尚未实现；
+- Reddit 与 X 没有使用官方专用连接器；当前会从 Google/Baidu 公开结果中识别
+  Reddit、X 和论坛页面，也支持手工或 CSV 导入原文；
 - 当前是单用户登录，不是多租户 SaaS；
 - SQLite 适合个人或小团队单实例使用，不适合多个写入节点。
 - 当前生产启动仍依赖 `tsx`；纯 Node 编译产物与 Docker 部署尚未实现。
@@ -681,7 +742,8 @@ npm run backup:restore -- \
 ## 路线图
 
 - [x] 可配置国家、语言与市场；
-- [ ] DataForSEO Trends；
+- [x] 中英文市场自动发现、AI 聚类与候选去重；
+- [ ] 独立 DataForSEO Trends endpoint；
 - [ ] Apple App Store 竞品完整差评主题；
 - [ ] 合规的 Reddit / X 数据连接器；
 - [x] 每日自动采集与重新评分；
@@ -703,6 +765,8 @@ product-radar/
 │   ├── app.ts                  # API 路由
 │   ├── db.ts                   # SQLite schema 与启动
 │   ├── providers.ts            # Demo / DataForSEO Provider
+│   ├── discovery-provider.ts   # 低成本自动发现数据源
+│   ├── discovery.ts            # AI 聚类与候选去重入库
 │   └── research.ts             # 三阶段 AI 调研
 ├── shared/                     # 前后端共享类型与 Zod Schema
 ├── src/

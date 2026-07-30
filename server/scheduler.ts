@@ -1,6 +1,11 @@
 import type { AppConfig } from "./config.js";
 import type { RadarDatabase } from "./db.js";
-import { JobAlreadyRunningError, runBackupJob, runResearchJob } from "./jobs.js";
+import {
+  JobAlreadyRunningError,
+  runBackupJob,
+  runDiscoveryJob,
+  runResearchJob,
+} from "./jobs.js";
 import { logEvent } from "./logger.js";
 
 function localDayStart() {
@@ -9,7 +14,10 @@ function localDayStart() {
   return date.toISOString();
 }
 
-function completedToday(db: RadarDatabase, jobType: "RESEARCH" | "BACKUP") {
+function completedToday(
+  db: RadarDatabase,
+  jobType: "DISCOVERY" | "RESEARCH" | "BACKUP",
+) {
   return Boolean(
     db
       .prepare(
@@ -41,6 +49,13 @@ export function startScheduler(db: RadarDatabase, config: AppConfig) {
         await runBackupJob(db, config, "scheduled");
       }
       if (
+        config.autoDiscoveryEnabled &&
+        hour >= config.schedulerDiscoveryHour &&
+        !completedToday(db, "DISCOVERY")
+      ) {
+        await runDiscoveryJob(db, config, "scheduled");
+      }
+      if (
         hour >= config.schedulerResearchHour &&
         !completedToday(db, "RESEARCH")
       ) {
@@ -63,6 +78,8 @@ export function startScheduler(db: RadarDatabase, config: AppConfig) {
   setTimeout(() => void tick(), 5_000).unref();
   logEvent("info", "scheduler_started", {
     pollIntervalMs: config.schedulerPollIntervalMs,
+    discoveryEnabled: config.autoDiscoveryEnabled,
+    discoveryHour: config.schedulerDiscoveryHour,
     researchHour: config.schedulerResearchHour,
     backupHour: config.schedulerBackupHour,
   });

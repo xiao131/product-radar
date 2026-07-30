@@ -1,8 +1,17 @@
-import { ArrowRight, FileUp, Inbox, Link2, Plus } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  FileUp,
+  Inbox,
+  Link2,
+  Plus,
+} from "lucide-react";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import type {
   Opportunity,
   OpportunityOption,
+  Paginated,
   Signal,
 } from "../../shared/types";
 import { api } from "../api";
@@ -11,8 +20,17 @@ import { SignalForm } from "../forms";
 import { shortDate, sourceLabels } from "../format";
 import { useNavigate } from "../router";
 
+function metricValue(value: unknown) {
+  if (Array.isArray(value)) return value.join("、");
+  if (typeof value === "number") return value.toLocaleString("en-US");
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "—";
+  return JSON.stringify(value);
+}
+
 export function SignalsPage() {
-  const [signals, setSignals] = useState<Signal[] | null>(null);
+  const [signals, setSignals] = useState<Paginated<Signal> | null>(null);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -29,12 +47,12 @@ export function SignalsPage() {
 
   function load() {
     setError("");
-    api<Signal[]>("/api/signals")
+    api<Paginated<Signal>>(`/api/signals?page=${page}&pageSize=20`)
       .then(setSignals)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "读取失败"));
   }
 
-  useEffect(load, []);
+  useEffect(load, [page]);
 
   async function processSignal(signal: Signal) {
     setProcessing(signal.id);
@@ -142,13 +160,19 @@ export function SignalsPage() {
       </p>
       {actionError && <div className="form-error standalone-error">{actionError}</div>}
 
-      {signals.length ? (
-        <section className="signal-list">
-          {signals.map((signal) => (
+      {signals.items.length ? (
+        <>
+          <section className="signal-list">
+          {signals.items.map((signal) => (
             <article className="signal-card" key={signal.id}>
               <div className="signal-card__source">
                 <Inbox size={17} />
                 <span>{sourceLabels[signal.sourceType]}</span>
+                {signal.sourceName && <small>{signal.sourceName}</small>}
+                {signal.market && <small>{signal.market}</small>}
+                {signal.autoCollected && (
+                  <small className="signal-auto-badge">AUTO</small>
+                )}
                 <small>{shortDate(signal.createdAt)}</small>
               </div>
               <div className="signal-card__body">
@@ -159,6 +183,17 @@ export function SignalsPage() {
                   </span>
                 </div>
                 <p>{signal.content}</p>
+                {signal.metrics &&
+                  Object.keys(signal.metrics).length > 0 && (
+                    <dl className="signal-metrics">
+                      {Object.entries(signal.metrics).map(([key, value]) => (
+                        <div key={key}>
+                          <dt>{key}</dt>
+                          <dd>{metricValue(value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
                 {signal.tags.length > 0 && (
                   <div className="tag-list">
                     {signal.tags.map((tag) => <span key={tag}>{tag}</span>)}
@@ -190,11 +225,35 @@ export function SignalsPage() {
               </div>
             </article>
           ))}
-        </section>
+          </section>
+          <footer className="pagination">
+            <span>
+              第 {signals.page} / {signals.totalPages} 页 · 共 {signals.total} 条
+            </span>
+            <div>
+              <button
+                className="icon-button"
+                disabled={page <= 1}
+                onClick={() => setPage((value) => value - 1)}
+                aria-label="上一页"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                className="icon-button"
+                disabled={page >= signals.totalPages}
+                onClick={() => setPage((value) => value + 1)}
+                aria-label="下一页"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </footer>
+        </>
       ) : (
         <EmptyState
           title="还没有原始信号"
-          description="先录入一个产品点子，或者粘贴一条真实用户抱怨。"
+          description="真实模式会按计划自动采集；你也可以先录入产品点子或粘贴真实用户抱怨。"
           action={<button className="button button--primary" onClick={() => setModalOpen(true)}>添加第一条信号</button>}
         />
       )}
@@ -208,7 +267,23 @@ export function SignalsPage() {
         <SignalForm
           onCancel={() => setModalOpen(false)}
           onSaved={(signal) => {
-            setSignals((current) => [signal, ...(current ?? [])]);
+            setPage(1);
+            setSignals((current) =>
+              current
+                ? {
+                    ...current,
+                    items: [signal, ...current.items].slice(
+                      0,
+                      current.pageSize,
+                    ),
+                    total: current.total + 1,
+                    totalPages: Math.max(
+                      1,
+                      Math.ceil((current.total + 1) / current.pageSize),
+                    ),
+                  }
+                : current,
+            );
             setModalOpen(false);
           }}
         />

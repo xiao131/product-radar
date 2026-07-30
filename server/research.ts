@@ -351,7 +351,7 @@ ${JSON.stringify(evidenceSnapshot)}
   const model = createResearchAiModel(config);
   const providerOptions = createResearchAiProviderOptions(config);
   const usageLedger = new UsageLedger(db, config);
-  usageLedger.reserve("AI", "research_pipeline", 1, {
+  const aiReservationId = usageLedger.reserve("AI", "research_pipeline", 1, {
     opportunityId: opportunity.id,
     model: config.aiModel,
     promptVersion: RESEARCH_PROMPT_VERSION,
@@ -417,8 +417,8 @@ ${dimensions.map((item) => item.key).join("\n")}
     Number(researcher.usage.outputTokens ?? 0) +
     Number(debate.usage.outputTokens ?? 0) +
     Number(judge.usage.outputTokens ?? 0);
-  usageLedger.recordMeasurement(
-    "AI",
+  usageLedger.settle(
+    aiReservationId,
     "research_pipeline_tokens",
     inputTokens,
     outputTokens,

@@ -8,17 +8,29 @@ export class UsageBudgetExceededError extends Error {
   constructor(
     public readonly provider: UsageProvider,
     public readonly limit: number,
+    public readonly budgetType: "units" | "daily_cost" | "monthly_cost" = "units",
   ) {
     super(
-      provider === "AI"
-        ? `今日 AI 调研预算已达到 ${limit} 次`
-        : `今日 DataForSEO 任务预算已达到 ${limit} 个`,
+      budgetType === "daily_cost"
+        ? `今日 DataForSEO 费用将超过 $${limit.toFixed(2)} 上限`
+        : budgetType === "monthly_cost"
+          ? `本月 DataForSEO 费用将超过 $${limit.toFixed(2)} 上限`
+          : provider === "AI"
+            ? `今日 AI 调研预算已达到 ${limit} 次`
+            : `今日 DataForSEO 任务预算已达到 ${limit} 个`,
     );
   }
 }
 
 function startOfLocalDay() {
   const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+function startOfLocalMonth() {
+  const date = new Date();
+  date.setDate(1);
   date.setHours(0, 0, 0, 0);
   return date.toISOString();
 }
@@ -34,68 +46,106 @@ export class UsageLedger {
     operation: string,
     units = 1,
     metadata: Record<string, unknown> = {},
+    estimatedCostUsd = 0,
   ) {
     const limit =
       provider === "AI"
         ? this.config.maxAiRunsPerDay
         : this.config.maxDataForSeoTasksPerDay;
     const createdAt = new Date().toISOString();
+    const reservationId = randomUUID();
     this.db.transaction(() => {
-      const used = Number(
-        (
-          this.db
-            .prepare(
-              `SELECT COALESCE(SUM(units), 0) AS units
-               FROM usage_events
-               WHERE provider = ? AND created_at >= ?`,
-            )
-            .get(provider, startOfLocalDay()) as { units: number }
-        ).units,
-      );
+      const usage = this.db
+        .prepare(
+          `SELECT
+             COALESCE(SUM(CASE WHEN created_at >= ? THEN units ELSE 0 END), 0) AS daily_units,
+             COALESCE(SUM(CASE WHEN created_at >= ? THEN cost_usd ELSE 0 END), 0) AS daily_cost,
+             COALESCE(SUM(CASE WHEN created_at >= ? THEN cost_usd ELSE 0 END), 0) AS monthly_cost
+           FROM usage_events
+           WHERE provider = ?`,
+        )
+        .get(
+          startOfLocalDay(),
+          startOfLocalDay(),
+          startOfLocalMonth(),
+          provider,
+        ) as {
+        daily_units: number;
+        daily_cost: number;
+        monthly_cost: number;
+      };
+      const used = Number(usage.daily_units);
+      const reservedCost = Math.max(0, estimatedCostUsd);
+      if (
+        provider === "DATAFORSEO" &&
+        Number(usage.daily_cost) + reservedCost >
+          this.config.maxDataForSeoCostPerDayUsd
+      ) {
+        throw new UsageBudgetExceededError(
+          provider,
+          this.config.maxDataForSeoCostPerDayUsd,
+          "daily_cost",
+        );
+      }
+      if (
+        provider === "DATAFORSEO" &&
+        Number(usage.monthly_cost) + reservedCost >
+          this.config.maxDataForSeoCostPerMonthUsd
+      ) {
+        throw new UsageBudgetExceededError(
+          provider,
+          this.config.maxDataForSeoCostPerMonthUsd,
+          "monthly_cost",
+        );
+      }
       if (used + units > limit) {
         throw new UsageBudgetExceededError(provider, limit);
       }
       this.db
         .prepare(
           `INSERT INTO usage_events (
-             id, provider, operation, units, metadata_json, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?)`,
+             id, provider, operation, units, cost_usd, metadata_json, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
-          randomUUID(),
+          reservationId,
           provider,
           operation,
           units,
+          reservedCost,
           JSON.stringify(metadata),
           createdAt,
         );
     })();
+    return reservationId;
   }
 
-  recordMeasurement(
-    provider: UsageProvider,
+  settle(
+    reservationId: string | undefined,
     operation: string,
     inputTokens: number,
     outputTokens: number,
     costUsd: number,
     metadata: Record<string, unknown> = {},
   ) {
+    if (!reservationId) return;
     this.db
       .prepare(
-        `INSERT INTO usage_events (
-           id, provider, operation, units, input_tokens, output_tokens,
-           cost_usd, metadata_json, created_at
-         ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        `UPDATE usage_events
+         SET operation = ?,
+             input_tokens = ?,
+             output_tokens = ?,
+             cost_usd = ?,
+             metadata_json = ?
+         WHERE id = ?`,
       )
       .run(
-        randomUUID(),
-        provider,
         operation,
         Math.max(0, Math.round(inputTokens)),
         Math.max(0, Math.round(outputTokens)),
         Math.max(0, costUsd),
         JSON.stringify(metadata),
-        new Date().toISOString(),
+        reservationId,
       );
   }
 
@@ -121,6 +171,13 @@ export class UsageLedger {
     const byProvider = new Map(rows.map((row) => [row.provider, row]));
     const ai = byProvider.get("AI");
     const dataForSeo = byProvider.get("DATAFORSEO");
+    const monthlyDataForSeo = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(cost_usd), 0) AS cost_usd
+         FROM usage_events
+         WHERE provider = 'DATAFORSEO' AND created_at >= ?`,
+      )
+      .get(startOfLocalMonth()) as { cost_usd: number };
     return {
       ai: {
         used: Number(ai?.units ?? 0),
@@ -132,6 +189,9 @@ export class UsageLedger {
         used: Number(dataForSeo?.units ?? 0),
         limit: this.config.maxDataForSeoTasksPerDay,
         reportedCostUsd: Number(dataForSeo?.cost_usd ?? 0),
+        dailyCostLimitUsd: this.config.maxDataForSeoCostPerDayUsd,
+        monthlyCostUsd: Number(monthlyDataForSeo.cost_usd ?? 0),
+        monthlyCostLimitUsd: this.config.maxDataForSeoCostPerMonthUsd,
       },
     };
   }

@@ -187,6 +187,41 @@ describe("Product Radar API", () => {
       .expect(400);
   });
 
+  it("paginates the growing automatic signal library", async () => {
+    const response = await request(app)
+      .get("/api/signals")
+      .query({ page: 1, pageSize: 2 })
+      .expect(200);
+    expect(response.body.items).toHaveLength(2);
+    expect(response.body).toMatchObject({
+      page: 1,
+      pageSize: 2,
+      total: 3,
+      totalPages: 2,
+    });
+  });
+
+  it("reports automatic discovery and dollar-budget operations state", async () => {
+    const response = await request(app)
+      .get("/api/operations/status")
+      .expect(200);
+    expect(response.body.scheduler).toMatchObject({
+      discoveryEnabled: false,
+      discoveryHour: 3,
+    });
+    expect(response.body.usage.dataForSeo).toMatchObject({
+      dailyCostLimitUsd: 0.5,
+      monthlyCostLimitUsd: 10,
+    });
+    expect(response.body.discovery).toMatchObject({
+      latestAt: null,
+      latestStatus: null,
+      collectedSignals: 0,
+      createdCandidates: 0,
+      refreshedCandidates: 0,
+    });
+  });
+
   it("links a raw signal to an existing opportunity as complaint evidence", async () => {
     const opportunity = (
       await request(app).get("/api/opportunities").expect(200)

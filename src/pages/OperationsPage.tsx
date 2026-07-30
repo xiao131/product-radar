@@ -4,8 +4,8 @@ import {
   CircleCheck,
   CircleX,
   DatabaseZap,
+  Radar,
   RefreshCw,
-  ShieldCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { OperationsStatus } from "../../shared/types";
@@ -16,7 +16,9 @@ import { shortDate } from "../format";
 export function OperationsPage() {
   const [status, setStatus] = useState<OperationsStatus | null>(null);
   const [error, setError] = useState("");
-  const [action, setAction] = useState<"research" | "backup" | "">("");
+  const [action, setAction] = useState<
+    "discovery" | "research" | "backup" | ""
+  >("");
   const [actionError, setActionError] = useState("");
 
   function load() {
@@ -34,7 +36,7 @@ export function OperationsPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  async function run(kind: "research" | "backup") {
+  async function run(kind: "discovery" | "research" | "backup") {
     setAction(kind);
     setActionError("");
     try {
@@ -51,6 +53,7 @@ export function OperationsPage() {
   if (!status) return <LoadingState label="正在读取生产运行状态" />;
 
   const sourceRows = [
+    ["自动发现", status.scheduler.discoveryEnabled],
     ["AI Judge", status.sources.ai],
     ["搜索需求", status.sources.search],
     ["Web 竞品", status.sources.webCompetitors],
@@ -85,6 +88,14 @@ export function OperationsPage() {
             {action === "backup" ? "备份中…" : "立即备份"}
           </button>
           <button
+            className="button button--secondary"
+            disabled={Boolean(action) || !status.scheduler.discoveryEnabled}
+            onClick={() => run("discovery")}
+          >
+            <Radar size={16} />
+            {action === "discovery" ? "发现中…" : "立即发现候选"}
+          </button>
+          <button
             className="button button--primary"
             disabled={Boolean(action)}
             onClick={() => run("research")}
@@ -99,24 +110,45 @@ export function OperationsPage() {
 
       <section className="operations-band">
         <div>
-          <Activity size={18} />
-          <span>待更新</span>
-          <strong>{status.freshness.due}</strong>
+          <Radar size={18} />
+          <span>
+            最近自动发现 ·{" "}
+            {status.discovery.latestAt
+              ? shortDate(status.discovery.latestAt)
+              : "尚无"}
+            {status.discovery.latestStatus
+              ? ` · ${status.discovery.latestStatus}`
+              : ""}
+          </span>
+          <strong>
+            {status.discovery.collectedSignals} 信号 · +
+            {status.discovery.createdCandidates}/
+            {status.discovery.refreshedCandidates} 更新
+          </strong>
         </div>
         <div>
           <DatabaseZap size={18} />
-          <span>今日 DataForSEO</span>
-          <strong>{status.usage.dataForSeo.used}/{status.usage.dataForSeo.limit}</strong>
+          <span>
+            今日 DataForSEO · {status.usage.dataForSeo.used}/
+            {status.usage.dataForSeo.limit} tasks
+          </span>
+          <strong>
+            ${status.usage.dataForSeo.reportedCostUsd.toFixed(3)}/$
+            {status.usage.dataForSeo.dailyCostLimitUsd.toFixed(2)}
+          </strong>
         </div>
         <div>
-          <ShieldCheck size={18} />
-          <span>今日 AI 判断</span>
-          <strong>{status.usage.ai.used}/{status.usage.ai.limit}</strong>
+          <DatabaseZap size={18} />
+          <span>本月 DataForSEO</span>
+          <strong>
+            ${status.usage.dataForSeo.monthlyCostUsd.toFixed(2)}/$
+            {status.usage.dataForSeo.monthlyCostLimitUsd.toFixed(2)}
+          </strong>
         </div>
         <div>
-          <Archive size={18} />
-          <span>最近备份</span>
-          <strong>{status.latestBackup?.finishedAt ? shortDate(status.latestBackup.finishedAt) : "尚无"}</strong>
+          <Activity size={18} />
+          <span>待完整调研</span>
+          <strong>{status.freshness.due}</strong>
         </div>
       </section>
 

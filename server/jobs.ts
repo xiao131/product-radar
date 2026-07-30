@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "./config.js";
 import type { RadarDatabase } from "./db.js";
+import { runAutomaticDiscovery } from "./discovery.js";
 import { logEvent } from "./logger.js";
 import { researchDueOpportunities } from "./research.js";
 import { createVerifiedBackup } from "./backup.js";
@@ -76,10 +77,10 @@ async function sendAlert(
 function startJob<T>(
   db: RadarDatabase,
   config: AppConfig,
-  jobType: "RESEARCH" | "BACKUP",
+  jobType: "DISCOVERY" | "RESEARCH" | "BACKUP",
   triggerType: JobTrigger,
   ttlMs: number,
-  work: () => Promise<T>,
+  work: (jobId: string) => Promise<T>,
 ) {
   const jobId = randomUUID();
   const lockName = `job:${jobType.toLowerCase()}`;
@@ -94,7 +95,9 @@ function startJob<T>(
       jobId,
       jobType,
       triggerType,
-      jobType === "RESEARCH" ? config.researchProvider.toUpperCase() : null,
+      jobType === "RESEARCH" || jobType === "DISCOVERY"
+        ? config.researchProvider.toUpperCase()
+        : null,
       startedAt,
     );
   } catch (error) {
@@ -104,7 +107,7 @@ function startJob<T>(
   logEvent("info", "job_started", { jobId, jobType, triggerType });
   const completion = (async () => {
     try {
-      const result = await work();
+      const result = await work(jobId);
       const finishedAt = now();
       db.prepare(
         `UPDATE job_runs
@@ -212,6 +215,32 @@ export function startResearchJob(
       48 * 60 * 60 * 1_000,
     ),
     () => researchDueOpportunities(db, config, delivery),
+  );
+}
+
+export function runDiscoveryJob(
+  db: RadarDatabase,
+  config: AppConfig,
+  trigger: JobTrigger,
+) {
+  return startDiscoveryJob(db, config, trigger).completion;
+}
+
+export function startDiscoveryJob(
+  db: RadarDatabase,
+  config: AppConfig,
+  trigger: JobTrigger,
+) {
+  return startJob(
+    db,
+    config,
+    "DISCOVERY",
+    trigger,
+    Math.max(
+      config.dataForSeoBatchTimeoutMs + 60 * 60 * 1_000,
+      24 * 60 * 60 * 1_000,
+    ),
+    (jobId) => runAutomaticDiscovery(db, config, jobId),
   );
 }
 

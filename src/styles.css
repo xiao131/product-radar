@@ -1699,6 +1699,14 @@ td {
   font-size: 10px;
 }
 
+.signal-card__source .signal-auto-badge {
+  padding: 2px 5px;
+  color: var(--forest);
+  font-family: "IBM Plex Mono", monospace;
+  background: var(--forest-light);
+  border: 1px solid #b5c8ba;
+}
+
 .signal-card__body > div:first-child {
   display: flex;
   align-items: center;
@@ -1714,6 +1722,37 @@ td {
   margin-top: 7px;
   color: #626863;
   line-height: 1.48;
+}
+
+.signal-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.signal-metrics > div {
+  display: flex;
+  gap: 6px;
+  padding: 4px 7px;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+}
+
+.signal-metrics dt,
+.signal-metrics dd {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+}
+
+.signal-metrics dt {
+  color: #858b86;
+}
+
+.signal-metrics dd {
+  color: #414642;
+  overflow-wrap: anywhere;
 }
 
 .signal-status {

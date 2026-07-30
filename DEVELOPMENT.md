@@ -8,6 +8,7 @@
 
 本次 MVP 必须实现：
 
+- 自动发现：从搜索、公开网页和 App Store 数据发现并去重产品候选；
 - 首页：展示最高优先级机会、最近涨分机会和产品摘要；
 - 雷达库：展示全部 Opportunity，支持排序、筛选、搜索和分页；
 - 调研详情：展示 AI 结论、评分、Web/iOS 平台判断、证据和历史变化；
@@ -73,6 +74,8 @@ interface ResearchDataProvider {
 
 真实 Provider 已实现：
 
+- DataForSEO Labs Keyword Ideas、Google/Baidu Standard SERP 和 Apple App
+  List 自动发现；
 - DataForSEO Google Ads Search Volume / Web SERP；
 - DataForSEO Apple App Data；
 - 用户手工导入证据。
@@ -191,6 +194,7 @@ POST   /api/auth/login
 POST   /api/auth/logout
 GET    /api/operations/status
 POST   /api/operations/research
+POST   /api/operations/discovery
 POST   /api/operations/backup
 ```
 
@@ -221,6 +225,16 @@ DATAFORSEO_PASSWORD=
 DATAFORSEO_BATCH_POLL_INTERVAL_MS=60000
 DATAFORSEO_BATCH_TIMEOUT_MS=14400000
 RESEARCH_MARKETS=US:2840:en:en,CN:2156:zh_CN:zh-CN
+MAX_DATAFORSEO_COST_PER_DAY_USD=0.5
+MAX_DATAFORSEO_COST_PER_MONTH_USD=10
+
+AUTO_DISCOVERY_ENABLED=true
+DISCOVERY_LABS_LIMIT=100
+DISCOVERY_SERP_QUERIES_PER_MARKET=8
+DISCOVERY_APP_DEPTH=100
+DISCOVERY_MAX_CANDIDATES_PER_RUN=5
+DISCOVERY_AI_SIGNAL_LIMIT=120
+SCHEDULER_DISCOVERY_HOUR=3
 
 AI_PROVIDER=openai
 OPENAI_BASE_URL=https://mdkj.lol

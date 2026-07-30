@@ -155,6 +155,36 @@ describe("production decision and budgets", () => {
     database.close();
   });
 
+  it("enforces daily and monthly DataForSEO dollar caps", () => {
+    const database: RadarDatabase = createDatabase(":memory:", false);
+    const config = createTestConfig({
+      maxDataForSeoTasksPerDay: 100,
+      maxDataForSeoCostPerDayUsd: 0.5,
+      maxDataForSeoCostPerMonthUsd: 0.75,
+    });
+    const ledger = new UsageLedger(database, config);
+    const reservation = ledger.reserve(
+      "DATAFORSEO",
+      "first",
+      1,
+      {},
+      0.4,
+    );
+    ledger.settle(reservation, "first_settled", 0, 0, 0.35);
+    expect(() =>
+      ledger.reserve("DATAFORSEO", "daily-over", 1, {}, 0.2),
+    ).toThrow(UsageBudgetExceededError);
+    const monthlyLedger = new UsageLedger(database, {
+      ...config,
+      maxDataForSeoCostPerDayUsd: 1,
+      maxDataForSeoCostPerMonthUsd: 0.5,
+    });
+    expect(() =>
+      monthlyLedger.reserve("DATAFORSEO", "monthly-over", 1, {}, 0.2),
+    ).toThrow(UsageBudgetExceededError);
+    database.close();
+  });
+
   it("downgrades a build-now verdict when evidence coverage is weak", () => {
     const guarded = applyEvidenceSufficiencyGuard(
       "BUILD_NOW",

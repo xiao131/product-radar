@@ -320,59 +320,80 @@ export class DataForSeoProvider implements ResearchDataProvider {
   private async request<T>(
     url: string,
     init?: RequestInit,
-    billed?: { operation: string; units: number; market: string },
+    billed?: {
+      operation: string;
+      units: number;
+      market: string;
+      estimatedCostUsd: number;
+    },
   ) {
-    if (billed) {
-      this.usageLedger?.reserve(
+    const reservationId = billed
+      ? this.usageLedger?.reserve(
         "DATAFORSEO",
         billed.operation,
         billed.units,
         { market: billed.market },
+        billed.estimatedCostUsd,
+      )
+      : undefined;
+    let payload: DataForSeoResponse<T>;
+    try {
+      payload = await withRetry(
+        async () => {
+          const response = await fetch(url, {
+            ...init,
+            headers: this.headers,
+            signal: AbortSignal.timeout(this.requestTimeoutMs),
+          });
+          if (!response.ok) {
+            const retryAfter = Number(response.headers.get("retry-after"));
+            const message = `DataForSEO 请求失败：HTTP ${response.status}`;
+            if (response.status === 429 || response.status >= 500) {
+              throw new RetryableProviderError(
+                message,
+                Number.isFinite(retryAfter) ? retryAfter * 1_000 : undefined,
+              );
+            }
+            throw new Error(message);
+          }
+          const responsePayload = (await response.json()) as DataForSeoResponse<T>;
+          if (
+            responsePayload.status_code &&
+            responsePayload.status_code !== 20000
+          ) {
+            const message =
+              responsePayload.status_message ?? "DataForSEO 请求失败";
+            if (responsePayload.status_code >= 50000) {
+              throw new RetryableProviderError(message);
+            }
+            throw new Error(message);
+          }
+          return responsePayload;
+        },
+        {
+          retries: this.maxRetries,
+        },
       );
+    } catch (error) {
+      this.usageLedger?.settle(
+        reservationId,
+        `${billed?.operation ?? "dataforseo"}_failed`,
+        0,
+        0,
+        billed?.estimatedCostUsd ?? 0,
+        { market: billed?.market, failed: true },
+      );
+      throw error;
     }
-    const payload = await withRetry(
-      async () => {
-        const response = await fetch(url, {
-          ...init,
-          headers: this.headers,
-          signal: AbortSignal.timeout(this.requestTimeoutMs),
-        });
-        if (!response.ok) {
-          const retryAfter = Number(response.headers.get("retry-after"));
-          const message = `DataForSEO 请求失败：HTTP ${response.status}`;
-          if (response.status === 429 || response.status >= 500) {
-            throw new RetryableProviderError(
-              message,
-              Number.isFinite(retryAfter) ? retryAfter * 1_000 : undefined,
-            );
-          }
-          throw new Error(message);
-        }
-        const responsePayload = (await response.json()) as DataForSeoResponse<T>;
-        if (
-          responsePayload.status_code &&
-          responsePayload.status_code !== 20000
-        ) {
-          const message =
-            responsePayload.status_message ?? "DataForSEO 请求失败";
-          if (responsePayload.status_code >= 50000) {
-            throw new RetryableProviderError(message);
-          }
-          throw new Error(message);
-        }
-        return responsePayload;
-      },
-      {
-        retries: this.maxRetries,
-      },
-    );
     if (billed) {
+      const taskCost =
+        payload.tasks?.reduce((sum, task) => sum + (task.cost ?? 0), 0) ?? 0;
       const reportedCost =
-        payload.cost ??
-        payload.tasks?.reduce((sum, task) => sum + (task.cost ?? 0), 0) ??
-        0;
-      this.usageLedger?.recordMeasurement(
-        "DATAFORSEO",
+        typeof payload.cost === "number" && payload.cost > 0
+          ? payload.cost
+          : taskCost;
+      this.usageLedger?.settle(
+        reservationId,
         billed.operation,
         0,
         0,
@@ -397,6 +418,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         operation: "google_ads_search_volume_live",
         units: 1,
         market: market.countryCode,
+        estimatedCostUsd: 0.09,
       },
     );
     const task = payload.tasks?.[0];
@@ -420,6 +442,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         operation: "google_ads_search_volume_standard",
         units: 1,
         market: market.countryCode,
+        estimatedCostUsd: 0.06,
       },
     );
     const task = posted.tasks?.[0];
@@ -562,6 +585,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         operation: "google_organic_serp",
         units: 1,
         market: market.countryCode,
+        estimatedCostUsd: 0.002,
       },
     );
     const result = payload.tasks?.[0]?.result?.[0];
@@ -635,6 +659,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         operation: "apple_app_search",
         units: 1,
         market: market.countryCode,
+        estimatedCostUsd: 0.0012,
       },
     );
     const task = posted.tasks?.[0];

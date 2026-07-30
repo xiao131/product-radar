@@ -197,6 +197,32 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    name: "automatic discovery and source deduplication",
+    up(db) {
+      db.exec(`
+        ALTER TABLE signals ADD COLUMN fingerprint TEXT;
+        ALTER TABLE signals ADD COLUMN market TEXT;
+        ALTER TABLE signals ADD COLUMN source_name TEXT;
+        ALTER TABLE signals ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}';
+        ALTER TABLE signals ADD COLUMN discovery_run_id TEXT;
+        ALTER TABLE signals ADD COLUMN auto_collected INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE opportunities ADD COLUMN discovery_key TEXT;
+        ALTER TABLE opportunities ADD COLUMN auto_discovered INTEGER NOT NULL DEFAULT 0;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_fingerprint
+          ON signals(fingerprint)
+          WHERE fingerprint IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_signal_discovery_run
+          ON signals(discovery_run_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_opportunity_discovery_key
+          ON opportunities(discovery_key)
+          WHERE discovery_key IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 export function migrateDatabase(db: Database.Database) {
