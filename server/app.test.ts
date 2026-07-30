@@ -1,0 +1,126 @@
+import request from "supertest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createApp } from "./app.js";
+import type { AppConfig } from "./config.js";
+import { createDatabase, type RadarDatabase } from "./db.js";
+
+const config: AppConfig = {
+  port: 0,
+  databasePath: ":memory:",
+  researchProvider: "demo",
+  aiModel: "openai/gpt-5.6-terra",
+};
+
+describe("Product Radar API", () => {
+  let database: RadarDatabase;
+  let app: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    database = createDatabase(":memory:", true);
+    app = createApp(database, config);
+  });
+
+  afterEach(() => {
+    database.close();
+  });
+
+  it("returns a result-oriented dashboard", async () => {
+    const response = await request(app).get("/api/dashboard").expect(200);
+    expect(response.body.mode).toBe("DEMO");
+    expect(response.body.stats.opportunities).toBe(12);
+    expect(response.body.topOpportunities[0].score).toBeGreaterThanOrEqual(80);
+    expect(response.body.products).toHaveLength(3);
+  });
+
+  it("filters, sorts and paginates the radar database", async () => {
+    const response = await request(app)
+      .get("/api/opportunities")
+      .query({
+        page: 1,
+        pageSize: 2,
+        platform: "IOS",
+        sortBy: "score",
+        sortDirection: "desc",
+      })
+      .expect(200);
+    expect(response.body.items).toHaveLength(2);
+    expect(response.body.items.every((item: { recommendedPlatform: string }) => item.recommendedPlatform === "IOS")).toBe(true);
+    expect(response.body.items[0].score).toBeGreaterThanOrEqual(response.body.items[1].score);
+    expect(response.body.totalPages).toBeGreaterThanOrEqual(2);
+  });
+
+  it("adds a product to the managed portfolio", async () => {
+    await request(app)
+      .post("/api/products")
+      .send({
+        name: "Local Lens",
+        platform: "WEB_AND_IOS",
+        status: "BUILDING",
+        description: "A local-first research tool.",
+        currentFocus: "Validate retention",
+      })
+      .expect(201);
+
+    const response = await request(app).get("/api/products").expect(200);
+    expect(response.body[0].name).toBe("Local Lens");
+    expect(response.body).toHaveLength(4);
+  });
+
+  it("turns a raw signal into an opportunity and creates versioned research", async () => {
+    const signalResponse = await request(app)
+      .post("/api/signals")
+      .send({
+        sourceType: "REDDIT",
+        title: "Calendar usable-time finder",
+        content: "Show me the two-hour blocks I can actually use, not another meeting list.",
+        tags: ["calendar", "complaint"],
+      })
+      .expect(201);
+
+    const opportunityResponse = await request(app)
+      .post(`/api/signals/${signalResponse.body.id}/process`)
+      .expect(201);
+    expect(opportunityResponse.body.researchStatus).toBe("UNRESEARCHED");
+
+    const firstReport = await request(app)
+      .post(`/api/opportunities/${opportunityResponse.body.id}/research`)
+      .expect(201);
+    expect(firstReport.body.version).toBe(1);
+    expect(firstReport.body.dimensionScores).toHaveLength(9);
+    expect(firstReport.body.evidenceIds).toHaveLength(4);
+
+    const secondReport = await request(app)
+      .post(`/api/opportunities/${opportunityResponse.body.id}/research`)
+      .expect(201);
+    expect(secondReport.body.version).toBe(2);
+
+    const detail = await request(app)
+      .get(`/api/opportunities/${opportunityResponse.body.id}`)
+      .expect(200);
+    expect(detail.body.reports).toHaveLength(2);
+    expect(detail.body.evidence).toHaveLength(8);
+    expect(detail.body.opportunity.researchStatus).toBe("READY");
+  });
+
+  it("imports CSV signals and validates required columns", async () => {
+    await request(app)
+      .post("/api/signals/import")
+      .send({
+        csv: [
+          "title,content,source_type,tags",
+          '"Export is painful","I need one-click clean exports",APP_REVIEW,"export;workflow"',
+          '"Privacy issue","Location metadata keeps leaking",REDDIT,"privacy;photo"',
+        ].join("\n"),
+      })
+      .expect(201)
+      .expect({ imported: 2 });
+
+    const signals = await request(app).get("/api/signals").expect(200);
+    expect(signals.body).toHaveLength(5);
+
+    await request(app)
+      .post("/api/signals/import")
+      .send({ csv: "title,source_type\nMissing content,IDEA" })
+      .expect(400);
+  });
+});
