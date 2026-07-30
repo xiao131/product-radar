@@ -47,7 +47,10 @@ describe("production security", () => {
       .send({ password })
       .expect(200);
     expect(login.body.csrfToken).toBeTruthy();
-    expect(login.headers["set-cookie"]?.join(";")).toContain("HttpOnly");
+    const setCookie = login.headers["set-cookie"];
+    expect(
+      Array.isArray(setCookie) ? setCookie.join(";") : String(setCookie),
+    ).toContain("HttpOnly");
 
     await agent
       .post("/api/signals")

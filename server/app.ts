@@ -250,6 +250,11 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         languageCode: config.marketLanguageCode,
         countryCode: config.marketCountryCode,
       },
+      markets: config.researchMarkets.map((market) => ({
+        locationCode: market.locationCode,
+        languageCode: market.searchLanguageCode,
+        countryCode: market.countryCode,
+      })),
       sources: {
         webCompetitors: config.collectWebCompetitors,
         appleMarket: config.collectAppleMarket,
@@ -544,6 +549,11 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       | undefined;
     const status: OperationsStatus = {
       mode: config.researchProvider === "real" ? "REAL" : "DEMO",
+      markets: config.researchMarkets.map((market) => ({
+        locationCode: market.locationCode,
+        languageCode: market.searchLanguageCode,
+        countryCode: market.countryCode,
+      })),
       market: {
         locationCode: config.marketLocationCode,
         languageCode: config.marketLanguageCode,

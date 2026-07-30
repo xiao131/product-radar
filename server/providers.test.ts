@@ -93,6 +93,74 @@ describe("DataForSeoProvider", () => {
       .toBe(2000);
   });
 
+  it("collects the same candidate across English and Chinese markets", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response({
+          status_code: 20000,
+          tasks: [
+            {
+              status_code: 20000,
+              status_message: "Ok.",
+              result: [searchResult("bilingual tool", 1200)],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          status_code: 20000,
+          tasks: [
+            {
+              status_code: 20000,
+              status_message: "Ok.",
+              result: [searchResult("bilingual tool", 600)],
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new DataForSeoProvider("login", "password", {
+      markets: [
+        {
+          countryCode: "US",
+          locationCode: 2840,
+          keywordLanguageCode: "en",
+          searchLanguageCode: "en",
+        },
+        {
+          countryCode: "CN",
+          locationCode: 2156,
+          keywordLanguageCode: "zh_CN",
+          searchLanguageCode: "zh-CN",
+        },
+      ],
+    });
+
+    const results = await provider.collectBatch([
+      {
+        opportunity: opportunity("bilingual", "Bilingual Tool"),
+        version: 1,
+      },
+    ]);
+    const evidence = results.get("bilingual") ?? [];
+    const firstInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(firstInit.body))[0]).toMatchObject(
+      { location_code: 2840, language_code: "en" },
+    );
+    expect(JSON.parse(String(secondInit.body))[0]).toMatchObject(
+      { location_code: 2156, language_code: "zh_CN" },
+    );
+    expect(evidence).toHaveLength(6);
+    expect(new Set(evidence.map((item) => item.market))).toEqual(
+      new Set(["US/en", "CN/zh-CN"]),
+    );
+  });
+
   it("posts and polls a standard batch task", async () => {
     const fetchMock = vi
       .fn()

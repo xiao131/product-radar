@@ -64,8 +64,14 @@ export function OperationsPage() {
           <span className="eyebrow">PRODUCTION CONTROL</span>
           <h2>系统是否足以支持今天的判断？</h2>
           <p>
-            {status.mode} · {status.market.countryCode}/
-            {status.market.languageCode} · 自动更新
+            {status.mode} ·{" "}
+            {(status.markets.length ? status.markets : [status.market])
+              .map(
+                (market) =>
+                  `${market.countryCode}/${market.languageCode}`,
+              )
+              .join(" + ")}{" "}
+            · 自动更新
             {status.scheduler.enabled ? "已开启" : "未开启"}
           </p>
         </div>

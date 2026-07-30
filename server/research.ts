@@ -96,7 +96,10 @@ function evidenceCoverage(evidence: EvidenceItem[]) {
   return {
     categories: [...new Set(usable.map((item) => item.category))].sort(),
     sourceCount: new Set(
-      usable.map((item) => `${item.sourceName}|${item.sourceUrl ?? ""}`),
+      usable.map(
+        (item) =>
+          `${item.sourceName}|${item.sourceUrl ?? ""}|${item.market ?? "GLOBAL"}`,
+      ),
     ).size,
     evidenceCount: usable.length,
     gapCount: evidence.length - usable.length,
@@ -750,7 +753,7 @@ const materialMetrics = [
 function latestMetricValues(db: RadarDatabase, opportunityId: string) {
   const rows = db
     .prepare(
-      `SELECT metric, value
+      `SELECT metric, value, market
        FROM evidence_items
        WHERE opportunity_id = ?
          AND metric IN (
@@ -764,11 +767,13 @@ function latestMetricValues(db: RadarDatabase, opportunityId: string) {
     .all(opportunityId) as Array<{
     metric: string;
     value: number | null;
+    market: string | null;
   }>;
   const values = new Map<string, number>();
   for (const row of rows) {
-    if (!values.has(row.metric) && row.value !== null) {
-      values.set(row.metric, Number(row.value));
+    const key = `${row.metric}|${row.market ?? "GLOBAL"}`;
+    if (!values.has(key) && row.value !== null) {
+      values.set(key, Number(row.value));
     }
   }
   return values;
@@ -792,12 +797,16 @@ function hasMaterialEvidenceChange(
             item.metric as (typeof materialMetrics)[number],
           ) && item.value !== null,
       )
-      .map((item) => [item.metric, item.value]),
+      .map((item) => [
+        `${item.metric}|${item.market ?? "GLOBAL"}`,
+        item.value,
+      ] as const),
   );
   if (!next.size) return true;
-  for (const [metric, nextValue] of next) {
-    const previousValue = previous.get(metric);
+  for (const [key, nextValue] of next) {
+    const previousValue = previous.get(key);
     if (previousValue === undefined) return true;
+    const metric = key.split("|", 1)[0] ?? key;
     const absolute = Math.abs(nextValue - previousValue);
     const relative = relativeChange(previousValue, nextValue);
     if (metric === "monthly_series_change" && absolute >= 5) return true;

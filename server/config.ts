@@ -10,6 +10,13 @@ export type AiReasoningEffort =
   | "xhigh"
   | "max";
 
+export interface ResearchMarket {
+  countryCode: string;
+  locationCode: number;
+  keywordLanguageCode: string;
+  searchLanguageCode: string;
+}
+
 export interface AppConfig {
   appEnv: "development" | "test" | "production";
   host: string;
@@ -32,6 +39,7 @@ export interface AppConfig {
   marketLocationCode: number;
   marketLanguageCode: string;
   marketCountryCode: string;
+  researchMarkets: ResearchMarket[];
   collectWebCompetitors: boolean;
   collectAppleMarket: boolean;
   researchFreshnessDays: number;
@@ -108,6 +116,39 @@ function reasoningEffortValue(value: string | undefined): AiReasoningEffort {
     : "xhigh";
 }
 
+function researchMarketsValue(
+  value: string | undefined,
+  fallback: ResearchMarket,
+) {
+  if (!value?.trim()) return [fallback];
+  const markets = value.split(",").map((entry) => {
+    const [countryCode, locationCode, keywordLanguageCode, searchLanguageCode] =
+      entry.split(":").map((part) => part.trim());
+    const numericLocationCode = Number(locationCode);
+    if (
+      !/^[A-Za-z]{2,3}$/.test(countryCode ?? "") ||
+      !Number.isInteger(numericLocationCode) ||
+      numericLocationCode <= 0 ||
+      !keywordLanguageCode ||
+      !searchLanguageCode
+    ) {
+      throw new Error(
+        "RESEARCH_MARKETS 格式无效，应为 COUNTRY:LOCATION:KEYWORD_LANG:SEARCH_LANG，多个市场用逗号分隔",
+      );
+    }
+    return {
+      countryCode: countryCode.toUpperCase(),
+      locationCode: numericLocationCode,
+      keywordLanguageCode,
+      searchLanguageCode,
+    };
+  });
+  if (new Set(markets.map((market) => market.countryCode)).size !== markets.length) {
+    throw new Error("RESEARCH_MARKETS 不能重复配置同一个国家");
+  }
+  return markets;
+}
+
 export function isAiConfigured(config: AppConfig) {
   return config.aiProvider === "openai"
     ? Boolean(config.openAiApiKey)
@@ -141,6 +182,22 @@ export function loadConfig(): AppConfig {
   );
   const authRequired = booleanValue(process.env.AUTH_REQUIRED, appEnv === "production");
   const seedDemoData = booleanValue(process.env.SEED_DEMO_DATA, appEnv !== "production");
+  const marketLocationCode = integerInRange(
+    process.env.MARKET_LOCATION_CODE,
+    2840,
+    1,
+    Number.MAX_SAFE_INTEGER,
+  );
+  const marketLanguageCode =
+    process.env.MARKET_LANGUAGE_CODE?.trim() || "en";
+  const marketCountryCode =
+    process.env.MARKET_COUNTRY_CODE?.trim().toUpperCase() || "US";
+  const researchMarkets = researchMarketsValue(process.env.RESEARCH_MARKETS, {
+    countryCode: marketCountryCode,
+    locationCode: marketLocationCode,
+    keywordLanguageCode: marketLanguageCode,
+    searchLanguageCode: marketLanguageCode,
+  });
 
   if (appEnv === "production") {
     const configuredOrigin = requireProductionValue(
@@ -210,14 +267,10 @@ export function loadConfig(): AppConfig {
     ),
     dataForSeoLogin: process.env.DATAFORSEO_LOGIN,
     dataForSeoPassword: process.env.DATAFORSEO_PASSWORD,
-    marketLocationCode: integerInRange(
-      process.env.MARKET_LOCATION_CODE,
-      2840,
-      1,
-      Number.MAX_SAFE_INTEGER,
-    ),
-    marketLanguageCode: process.env.MARKET_LANGUAGE_CODE?.trim() || "en",
-    marketCountryCode: process.env.MARKET_COUNTRY_CODE?.trim().toUpperCase() || "US",
+    marketLocationCode,
+    marketLanguageCode,
+    marketCountryCode,
+    researchMarkets,
     collectWebCompetitors: booleanValue(
       process.env.COLLECT_WEB_COMPETITORS,
       true,

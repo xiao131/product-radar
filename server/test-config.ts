@@ -21,6 +21,14 @@ export function createTestConfig(
     marketLocationCode: 2840,
     marketLanguageCode: "en",
     marketCountryCode: "US",
+    researchMarkets: [
+      {
+        countryCode: "US",
+        locationCode: 2840,
+        keywordLanguageCode: "en",
+        searchLanguageCode: "en",
+      },
+    ],
     collectWebCompetitors: false,
     collectAppleMarket: false,
     researchFreshnessDays: 7,

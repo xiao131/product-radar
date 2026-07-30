@@ -219,6 +219,11 @@ export interface DashboardData {
 
 export interface OperationsStatus {
   mode: "DEMO" | "REAL";
+  markets: Array<{
+    locationCode: number;
+    languageCode: string;
+    countryCode: string;
+  }>;
   market: {
     locationCode: number;
     languageCode: string;

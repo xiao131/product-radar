@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AppConfig } from "./config.js";
+import type { AppConfig, ResearchMarket } from "./config.js";
 import type { RadarDatabase } from "./db.js";
 import { RetryableProviderError, withRetry } from "./retry.js";
 import { UsageLedger } from "./usage.js";
@@ -164,6 +164,7 @@ interface DataForSeoProviderOptions {
   marketLocationCode?: number;
   marketLanguageCode?: string;
   marketCountryCode?: string;
+  markets?: ResearchMarket[];
   collectWebCompetitors?: boolean;
   collectAppleMarket?: boolean;
   usageLedger?: UsageLedger;
@@ -207,9 +208,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
   private readonly standardTimeoutMs: number;
   private readonly requestTimeoutMs: number;
   private readonly maxRetries: number;
-  private readonly marketLocationCode: number;
-  private readonly marketLanguageCode: string;
-  private readonly marketCountryCode: string;
+  private readonly markets: ResearchMarket[];
   private readonly collectWebCompetitors: boolean;
   private readonly collectAppleMarket: boolean;
   private readonly usageLedger?: UsageLedger;
@@ -223,9 +222,17 @@ export class DataForSeoProvider implements ResearchDataProvider {
     this.standardTimeoutMs = options.standardTimeoutMs ?? 4 * 60 * 60 * 1_000;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
     this.maxRetries = options.maxRetries ?? 2;
-    this.marketLocationCode = options.marketLocationCode ?? 2840;
-    this.marketLanguageCode = options.marketLanguageCode ?? "en";
-    this.marketCountryCode = options.marketCountryCode ?? "US";
+    this.markets =
+      options.markets?.length
+        ? options.markets
+        : [
+            {
+              locationCode: options.marketLocationCode ?? 2840,
+              keywordLanguageCode: options.marketLanguageCode ?? "en",
+              searchLanguageCode: options.marketLanguageCode ?? "en",
+              countryCode: options.marketCountryCode ?? "US",
+            },
+          ];
     this.collectWebCompetitors = options.collectWebCompetitors ?? false;
     this.collectAppleMarket = options.collectAppleMarket ?? false;
     this.usageLedger = options.usageLedger;
@@ -252,44 +259,54 @@ export class DataForSeoProvider implements ResearchDataProvider {
       group.push(request);
       groups.set(keyword, group);
     }
-    const keywords = [...groups.keys()];
-    const taskInput = [
-      {
-        keywords,
-        location_code: this.marketLocationCode,
-        language_code: this.marketLanguageCode,
-      },
-    ];
-
-    const results =
-      delivery === "standard"
-        ? await this.collectStandard(taskInput)
-        : await this.collectLive(taskInput);
-    const resultByKeyword = new Map<string, SearchVolumeResult>();
-    results.forEach((result, index) => {
-      const requestedKeyword = keywords[index];
-      const returnedKeyword = result.keyword?.toLocaleLowerCase();
-      if (returnedKeyword) resultByKeyword.set(returnedKeyword, result);
-      if (requestedKeyword && !resultByKeyword.has(requestedKeyword)) {
-        resultByKeyword.set(requestedKeyword, result);
-      }
-    });
-
-    const now = new Date().toISOString();
     const evidenceByOpportunity = new Map<string, EvidenceItem[]>();
-    for (const [keyword, group] of groups) {
-      const result = resultByKeyword.get(keyword);
-      if (!result) {
-        throw new Error(`DataForSEO 没有返回关键词“${keyword}”的数据`);
+    requests.forEach(({ opportunity }) =>
+      evidenceByOpportunity.set(opportunity.id, []),
+    );
+    const keywords = [...groups.keys()];
+    for (const market of this.markets) {
+      const taskInput = [
+        {
+          keywords,
+          location_code: market.locationCode,
+          language_code: market.keywordLanguageCode,
+        },
+      ];
+      const results =
+        delivery === "standard"
+          ? await this.collectStandard(taskInput, market)
+          : await this.collectLive(taskInput, market);
+      const resultByKeyword = new Map<string, SearchVolumeResult>();
+      results.forEach((result, index) => {
+        const requestedKeyword = keywords[index];
+        const returnedKeyword = result.keyword?.toLocaleLowerCase();
+        if (returnedKeyword) resultByKeyword.set(returnedKeyword, result);
+        if (requestedKeyword && !resultByKeyword.has(requestedKeyword)) {
+          resultByKeyword.set(requestedKeyword, result);
+        }
+      });
+      const now = new Date().toISOString();
+      for (const [keyword, group] of groups) {
+        const result = resultByKeyword.get(keyword);
+        if (!result) {
+          throw new Error(
+            `DataForSEO 没有返回 ${market.countryCode} 市场关键词“${keyword}”的数据`,
+          );
+        }
+        for (const { opportunity } of group) {
+          const current = evidenceByOpportunity.get(opportunity.id) ?? [];
+          current.push(
+            ...this.toEvidence(opportunity, result, now, market),
+          );
+          evidenceByOpportunity.set(opportunity.id, current);
+        }
       }
-      for (const { opportunity } of group) {
-        evidenceByOpportunity.set(
-          opportunity.id,
-          this.toEvidence(opportunity, result, now),
-        );
-      }
+      await this.collectOptionalEvidence(
+        requests,
+        evidenceByOpportunity,
+        market,
+      );
     }
-    await this.collectOptionalEvidence(requests, evidenceByOpportunity);
     return evidenceByOpportunity;
   }
 
@@ -303,14 +320,14 @@ export class DataForSeoProvider implements ResearchDataProvider {
   private async request<T>(
     url: string,
     init?: RequestInit,
-    billed?: { operation: string; units: number },
+    billed?: { operation: string; units: number; market: string },
   ) {
     if (billed) {
       this.usageLedger?.reserve(
         "DATAFORSEO",
         billed.operation,
         billed.units,
-        { market: this.marketCountryCode },
+        { market: billed.market },
       );
     }
     const payload = await withRetry(
@@ -360,19 +377,27 @@ export class DataForSeoProvider implements ResearchDataProvider {
         0,
         0,
         reportedCost,
+        { market: billed.market },
       );
     }
     return payload;
   }
 
-  private async collectLive(taskInput: unknown[]) {
+  private async collectLive(
+    taskInput: unknown[],
+    market: ResearchMarket,
+  ) {
     const payload = await this.request<SearchVolumeResult>(
       `${DATA_FOR_SEO_BASE_URL}/live`,
       {
         method: "POST",
         body: JSON.stringify(taskInput),
       },
-      { operation: "google_ads_search_volume_live", units: 1 },
+      {
+        operation: "google_ads_search_volume_live",
+        units: 1,
+        market: market.countryCode,
+      },
     );
     const task = payload.tasks?.[0];
     if (!task || task.status_code !== 20000 || !task.result) {
@@ -381,14 +406,21 @@ export class DataForSeoProvider implements ResearchDataProvider {
     return task.result;
   }
 
-  private async collectStandard(taskInput: unknown[]) {
+  private async collectStandard(
+    taskInput: unknown[],
+    market: ResearchMarket,
+  ) {
     const posted = await this.request<SearchVolumeResult>(
       `${DATA_FOR_SEO_BASE_URL}/task_post`,
       {
         method: "POST",
         body: JSON.stringify(taskInput),
       },
-      { operation: "google_ads_search_volume_standard", units: 1 },
+      {
+        operation: "google_ads_search_volume_standard",
+        units: 1,
+        market: market.countryCode,
+      },
     );
     const task = posted.tasks?.[0];
     if (!task?.id || task.status_code >= 40000) {
@@ -419,6 +451,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
     category: "COMPETITOR" | "APP_STORE",
     sourceName: string,
     error: unknown,
+    market: ResearchMarket,
   ): EvidenceItem {
     return {
       id: randomUUID(),
@@ -435,13 +468,14 @@ export class DataForSeoProvider implements ResearchDataProvider {
       rawExcerpt: error instanceof Error ? error.message.slice(0, 300) : null,
       collectedAt: new Date().toISOString(),
       freshnessDays: 0,
-      market: `${this.marketCountryCode}/${this.marketLanguageCode}`,
+      market: this.marketLabel(market),
     };
   }
 
   private async collectOptionalEvidence(
     requests: ResearchCollectionRequest[],
     evidenceByOpportunity: Map<string, EvidenceItem[]>,
+    market: ResearchMarket,
   ) {
     let nextIndex = 0;
     const worker = async () => {
@@ -456,7 +490,10 @@ export class DataForSeoProvider implements ResearchDataProvider {
         ) {
           try {
             current.push(
-              ...(await this.collectWebCompetition(request.opportunity)),
+              ...(await this.collectWebCompetition(
+                request.opportunity,
+                market,
+              )),
             );
           } catch (error) {
             current.push(
@@ -465,6 +502,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
                 "COMPETITOR",
                 "DataForSEO Google SERP",
                 error,
+                market,
               ),
             );
           }
@@ -475,7 +513,10 @@ export class DataForSeoProvider implements ResearchDataProvider {
         ) {
           try {
             current.push(
-              ...(await this.collectAppleCompetition(request.opportunity)),
+              ...(await this.collectAppleCompetition(
+                request.opportunity,
+                market,
+              )),
             );
           } catch (error) {
             current.push(
@@ -484,6 +525,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
                 "APP_STORE",
                 "DataForSEO Apple App Data",
                 error,
+                market,
               ),
             );
           }
@@ -495,7 +537,14 @@ export class DataForSeoProvider implements ResearchDataProvider {
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
   }
 
-  private async collectWebCompetition(opportunity: Opportunity) {
+  private marketLabel(market: ResearchMarket) {
+    return `${market.countryCode}/${market.searchLanguageCode}`;
+  }
+
+  private async collectWebCompetition(
+    opportunity: Opportunity,
+    market: ResearchMarket,
+  ) {
     const payload = await this.request<OrganicSerpResult>(
       DATA_FOR_SEO_SERP_URL,
       {
@@ -503,13 +552,17 @@ export class DataForSeoProvider implements ResearchDataProvider {
         body: JSON.stringify([
           {
             keyword: keywordFor(opportunity),
-            location_code: this.marketLocationCode,
-            language_code: this.marketLanguageCode,
+            location_code: market.locationCode,
+            language_code: market.searchLanguageCode,
             depth: 10,
           },
         ]),
       },
-      { operation: "google_organic_serp", units: 1 },
+      {
+        operation: "google_organic_serp",
+        units: 1,
+        market: market.countryCode,
+      },
     );
     const result = payload.tasks?.[0]?.result?.[0];
     if (!result) throw new Error("Google SERP 没有返回结果");
@@ -538,7 +591,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         rawExcerpt: excerpt || null,
         collectedAt: now,
         freshnessDays: 0,
-        market: `${this.marketCountryCode}/${this.marketLanguageCode}`,
+        market: this.marketLabel(market),
       },
       {
         id: randomUUID(),
@@ -555,12 +608,15 @@ export class DataForSeoProvider implements ResearchDataProvider {
         rawExcerpt: null,
         collectedAt: now,
         freshnessDays: 0,
-        market: `${this.marketCountryCode}/${this.marketLanguageCode}`,
+        market: this.marketLabel(market),
       },
     ];
   }
 
-  private async collectAppleCompetition(opportunity: Opportunity) {
+  private async collectAppleCompetition(
+    opportunity: Opportunity,
+    market: ResearchMarket,
+  ) {
     const posted = await this.request<AppleAppSearchResult>(
       `${DATA_FOR_SEO_APP_SEARCH_URL}/task_post`,
       {
@@ -568,14 +624,18 @@ export class DataForSeoProvider implements ResearchDataProvider {
         body: JSON.stringify([
           {
             keyword: keywordFor(opportunity),
-            location_code: this.marketLocationCode,
-            language_code: this.marketLanguageCode,
+            location_code: market.locationCode,
+            language_code: market.searchLanguageCode,
             depth: 100,
-            tag: opportunity.id,
+            tag: `${opportunity.id}:${market.countryCode}`,
           },
         ]),
       },
-      { operation: "apple_app_search", units: 1 },
+      {
+        operation: "apple_app_search",
+        units: 1,
+        market: market.countryCode,
+      },
     );
     const task = posted.tasks?.[0];
     if (!task?.id || task.status_code >= 40000) {
@@ -619,7 +679,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
       )
       .join("\n");
     const now = new Date().toISOString();
-    const market = `${this.marketCountryCode}/${this.marketLanguageCode}`;
+    const marketLabel = this.marketLabel(market);
     return [
       {
         id: randomUUID(),
@@ -636,7 +696,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         rawExcerpt: excerpt || null,
         collectedAt: now,
         freshnessDays: 0,
-        market,
+        market: marketLabel,
       },
       {
         id: randomUUID(),
@@ -653,7 +713,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         rawExcerpt: null,
         collectedAt: now,
         freshnessDays: 0,
-        market,
+        market: marketLabel,
       },
       {
         id: randomUUID(),
@@ -670,7 +730,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         rawExcerpt: null,
         collectedAt: now,
         freshnessDays: 0,
-        market,
+        market: marketLabel,
       },
     ];
   }
@@ -679,6 +739,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
     opportunity: Opportunity,
     result: SearchVolumeResult,
     now: string,
+    market: ResearchMarket,
   ): EvidenceItem[] {
     const monthly = result.monthly_searches ?? [];
     const newest = monthly[0]?.search_volume ?? 0;
@@ -706,7 +767,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         rawExcerpt: null,
         collectedAt: now,
         freshnessDays: 0,
-        market: `${this.marketCountryCode}/${this.marketLanguageCode}`,
+        market: this.marketLabel(market),
       },
       {
         id: randomUUID(),
@@ -723,7 +784,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         rawExcerpt: null,
         collectedAt: now,
         freshnessDays: 0,
-        market: `${this.marketCountryCode}/${this.marketLanguageCode}`,
+        market: this.marketLabel(market),
       },
       {
         id: randomUUID(),
@@ -740,7 +801,7 @@ export class DataForSeoProvider implements ResearchDataProvider {
         rawExcerpt: `Competition index: ${competition}`,
         collectedAt: now,
         freshnessDays: 0,
-        market: `${this.marketCountryCode}/${this.marketLanguageCode}`,
+        market: this.marketLabel(market),
       },
     ];
   }
@@ -763,6 +824,7 @@ export function createResearchProvider(
       marketLocationCode: config.marketLocationCode,
       marketLanguageCode: config.marketLanguageCode,
       marketCountryCode: config.marketCountryCode,
+      markets: config.researchMarkets,
       collectWebCompetitors: config.collectWebCompetitors,
       collectAppleMarket: config.collectAppleMarket,
       usageLedger: db ? new UsageLedger(db, config) : undefined,

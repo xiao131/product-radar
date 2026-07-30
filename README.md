@@ -209,9 +209,18 @@ AI_MODEL=openai/gpt-5.6-terra
 - 手工、CSV、Reddit、App Review 等信号原文；
 - 三阶段 AI 结构化判断。
 
-市场通过 `MARKET_LOCATION_CODE`、`MARKET_LANGUAGE_CODE` 和
-`MARKET_COUNTRY_CODE` 配置。生产环境请求 `REAL` 模式但凭据不完整时，服务会
-拒绝启动，避免在你不知情的情况下回退到 Demo。
+单市场可以通过 `MARKET_LOCATION_CODE`、`MARKET_LANGUAGE_CODE` 和
+`MARKET_COUNTRY_CODE` 配置。需要同时覆盖多个市场时使用
+`RESEARCH_MARKETS`；例如英文美国市场和简体中文中国市场：
+
+```env
+RESEARCH_MARKETS=US:2840:en:en,CN:2156:zh_CN:zh-CN
+```
+
+每一项依次为国家、位置代码、Google Ads 语言代码、SERP/App 语言代码。不同
+DataForSEO 产品的简体中文代码不同，因此配置中同时保留两种代码。生产环境请求
+`REAL` 模式但凭据不完整时，服务会拒绝启动，避免在你不知情的情况下回退到
+Demo。
 
 为控制真实模式成本，系统默认复用 7 天内的调研结果。详情页的“检查并更新”会优先命中缓存；只有确认“强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000 个到期关键词合并为一个任务。每日 AI 和 DataForSEO 使用量由 SQLite 持久化预算限制。
 每日预算和定时小时都以服务器本地时区计算，部署时应明确设置服务器的
@@ -248,6 +257,7 @@ npm run research:batch
 | `MARKET_LOCATION_CODE` | `2840` | 否 | DataForSEO 市场位置代码 |
 | `MARKET_LANGUAGE_CODE` | `en` | 否 | 调研语言代码 |
 | `MARKET_COUNTRY_CODE` | `US` | 否 | 报告展示和证据记录的国家代码 |
+| `RESEARCH_MARKETS` | 使用上面三个单市场变量 | 否 | 多市场列表，格式为 `国家:位置:Ads语言:搜索语言`，逗号分隔 |
 | `COLLECT_WEB_COMPETITORS` | `true` | 否 | 是否采集 Google Organic 竞品 |
 | `COLLECT_APPLE_MARKET` | `true` | 否 | 是否采集 Apple App Search 数据 |
 | `AI_PROVIDER` | 自动选择 | 否 | `openai`（Responses 中转/官方 API）或 `gateway` |
