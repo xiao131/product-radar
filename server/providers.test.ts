@@ -140,4 +140,139 @@ describe("DataForSeoProvider", () => {
     );
     expect(results.get("queued")).toHaveLength(3);
   });
+
+  it("collects Web SERP and Apple market evidence for a cross-platform idea", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response({
+          status_code: 20000,
+          tasks: [
+            {
+              status_code: 20000,
+              status_message: "Ok.",
+              result: [searchResult("cross platform tool", 1500)],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          status_code: 20000,
+          tasks: [
+            {
+              status_code: 20000,
+              status_message: "Ok.",
+              result: [
+                {
+                  se_results_count: 12000,
+                  items: [
+                    {
+                      type: "organic",
+                      domain: "first.example",
+                      title: "First competitor",
+                      url: "https://first.example",
+                    },
+                    {
+                      type: "organic",
+                      domain: "second.example",
+                      title: "Second competitor",
+                      url: "https://second.example",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          status_code: 20000,
+          tasks: [
+            {
+              id: "apple-task",
+              status_code: 20100,
+              status_message: "Task Created.",
+              result: null,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          status_code: 20000,
+          tasks: [
+            {
+              id: "apple-task",
+              status_code: 20000,
+              status_message: "Ok.",
+              result: [
+                {
+                  items: [
+                    {
+                      app_id: "one",
+                      title: "First App",
+                      rating: { value: 4.2 },
+                      reviews_count: 120,
+                    },
+                    {
+                      app_id: "two",
+                      title: "Second App",
+                      rating: { value: 3.8 },
+                      reviews_count: 80,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new DataForSeoProvider("login", "password", {
+      standardPollIntervalMs: 1,
+      standardTimeoutMs: 100,
+      collectWebCompetitors: true,
+      collectAppleMarket: true,
+      marketLocationCode: 2840,
+      marketLanguageCode: "en",
+      marketCountryCode: "US",
+    });
+    const candidate = {
+      ...opportunity("cross-platform", "Cross Platform Tool"),
+      recommendedPlatform: "WEB_AND_IOS" as const,
+    };
+
+    const results = await provider.collectBatch([
+      { opportunity: candidate, version: 1 },
+    ]);
+    const evidence = results.get(candidate.id) ?? [];
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[1]?.[0]).toMatch(
+      /serp\/google\/organic\/live\/advanced$/,
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toMatch(
+      /app_data\/apple\/app_searches\/task_post$/,
+    );
+    expect(fetchMock.mock.calls[3]?.[0]).toMatch(
+      /app_data\/apple\/app_searches\/task_get\/advanced\/apple-task$/,
+    );
+    expect(
+      evidence.find((item) => item.metric === "organic_competitor_domains")
+        ?.value,
+    ).toBe(2);
+    expect(
+      evidence.find((item) => item.metric === "app_store_competitors")?.value,
+    ).toBe(2);
+    expect(
+      evidence.find((item) => item.metric === "competitor_average_rating")
+        ?.value,
+    ).toBe(4);
+    expect(
+      evidence.find((item) => item.metric === "competitor_review_volume")
+        ?.value,
+    ).toBe(200);
+  });
 });

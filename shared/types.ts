@@ -92,6 +92,8 @@ export interface EvidenceItem {
   rawExcerpt: string | null;
   collectedAt: string;
   freshnessDays: number;
+  fingerprint?: string | null;
+  market?: string | null;
 }
 
 export interface ResearchReport {
@@ -114,6 +116,25 @@ export interface ResearchReport {
   platformAnalysis: PlatformAnalysis;
   mvp: MvpPlan;
   evidenceIds: string[];
+  citedClaims?: Array<{ text: string; evidenceIds: string[] }>;
+  modelId?: string | null;
+  promptVersion?: string | null;
+  evidenceCoverage?: {
+    categories: string[];
+    sourceCount: number;
+    evidenceCount: number;
+    gapCount: number;
+  };
+  evidenceSnapshot?: Array<Record<string, unknown>>;
+  guardrail?: {
+    applied: boolean;
+    reasons: string[];
+    originalVerdict?: Verdict;
+  };
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
   changeSummary: string;
   researcherSummary: string;
   debateSummary: string;
@@ -175,6 +196,12 @@ export interface Paginated<T> {
   totalPages: number;
 }
 
+export interface OpportunityOption {
+  id: string;
+  name: string;
+  recommendedPlatform: Platform;
+}
+
 export interface DashboardData {
   mode: "DEMO" | "REAL";
   topOpportunities: Opportunity[];
@@ -188,4 +215,59 @@ export interface DashboardData {
     signalsWaiting: number;
     liveProducts: number;
   };
+}
+
+export interface OperationsStatus {
+  mode: "DEMO" | "REAL";
+  market: {
+    locationCode: number;
+    languageCode: string;
+    countryCode: string;
+  };
+  sources: {
+    ai: boolean;
+    search: boolean;
+    webCompetitors: boolean;
+    appleMarket: boolean;
+  };
+  freshness: {
+    due: number;
+    running: number;
+    failed: number;
+    latestResearchAt: string | null;
+  };
+  usage: {
+    ai: {
+      used: number;
+      limit: number;
+      inputTokens: number;
+      outputTokens: number;
+    };
+    dataForSeo: {
+      used: number;
+      limit: number;
+      reportedCostUsd: number;
+    };
+  };
+  scheduler: {
+    enabled: boolean;
+    researchHour: number;
+    backupHour: number;
+  };
+  jobs: Array<{
+    id: string;
+    type: string;
+    trigger: string;
+    status: string;
+    error: string | null;
+    startedAt: string;
+    finishedAt: string | null;
+  }>;
+  latestBackup: {
+    status: string;
+    fileName: string | null;
+    sizeBytes: number | null;
+    integrity: string | null;
+    finishedAt: string | null;
+  } | null;
 }

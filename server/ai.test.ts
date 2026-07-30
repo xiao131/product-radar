@@ -6,10 +6,10 @@ import {
   createResearchAiProviderOptions,
 } from "./ai.js";
 import type { AppConfig } from "./config.js";
+import { createTestConfig } from "./test-config.js";
 
 const relayConfig: AppConfig = {
-  port: 0,
-  databasePath: ":memory:",
+  ...createTestConfig(),
   researchProvider: "real",
   aiProvider: "openai",
   aiModel: "gpt-5.6-terra",

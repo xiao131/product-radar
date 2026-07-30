@@ -30,7 +30,7 @@
 
 ```text
 Frontend: React 19 + Vite 8 + TypeScript
-Routing: React Router
+Routing: lightweight History API router
 Styling: Tailwind CSS 4
 Icons: Lucide React
 Backend: Express 5 + TypeScript
@@ -61,16 +61,19 @@ Provider 接口：
 
 ```ts
 interface ResearchDataProvider {
-  discover(input: DiscoveryInput): Promise<DiscoveryEvidence>;
-  refresh(opportunityId: string): Promise<DiscoveryEvidence>;
+  collect(opportunity: Opportunity, version: number): Promise<EvidenceItem[]>;
+  collectBatch(
+    requests: ResearchCollectionRequest[],
+    delivery?: "live" | "standard",
+  ): Promise<Map<string, EvidenceItem[]>>;
 }
 ```
 
 默认 `demo` Provider 返回稳定、可追溯的本地证据，用于无密钥开发和测试。
 
-真实 Provider 预留：
+真实 Provider 已实现：
 
-- DataForSEO Labs / Trends / Web SERP；
+- DataForSEO Google Ads Search Volume / Web SERP；
 - DataForSEO Apple App Data；
 - 用户手工导入证据。
 
@@ -121,7 +124,8 @@ discovery_runs
 settings
 ```
 
-列表字段独立存储，详细证据存 JSON。研究报告只新增版本，不覆盖历史。
+候选列表字段与证据行独立存储；研究报告的结构化详情和证据快照存 JSON。
+研究报告只新增版本，不覆盖历史。
 
 ### 3.6 Presentation
 
@@ -133,6 +137,7 @@ settings
 /radar/:id
 /products
 /signals
+/operations
 ```
 
 ## 4. 数据更新
@@ -144,7 +149,8 @@ settings
 - 新 Product；
 - 新证据；
 - 评分模型变化；
-- 后续定时任务。
+- 内置定时任务；
+- 新信号关联到已有候选。
 
 更新流程：
 
@@ -175,9 +181,17 @@ GET    /api/signals
 POST   /api/signals
 POST   /api/signals/import
 POST   /api/signals/:id/process
+POST   /api/signals/:id/link
 
 GET    /api/settings
-GET    /api/health
+GET    /api/health/live
+GET    /api/health/ready
+GET    /api/auth/session
+POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/operations/status
+POST   /api/operations/research
+POST   /api/operations/backup
 ```
 
 列表接口统一支持：
@@ -217,20 +231,22 @@ AI_DISABLE_RESPONSE_STORAGE=true
 AI_GATEWAY_API_KEY=
 ```
 
-未配置真实凭据时，应用以 Demo 模式运行并显示明显标识。
+完整变量与默认值以 `.env.example` 为准。开发环境未配置真实凭据时以 Demo
+模式运行；生产环境请求真实模式但凭据不完整时直接拒绝启动。
 
 切换到真实调研需要同时配置：
 
 - `OPENAI_API_KEY`（`AI_PROVIDER=openai`）或 `AI_GATEWAY_API_KEY`
   （`AI_PROVIDER=gateway`）：执行 Researcher、Advocate/Critic、Judge 三阶段判断；
-- `DATAFORSEO_LOGIN` 与 `DATAFORSEO_PASSWORD`：获取关键词搜索量、月度变化、竞争和 CPC。
+- `DATAFORSEO_LOGIN` 与 `DATAFORSEO_PASSWORD`：获取关键词搜索量、月度变化、
+  CPC、Google Organic 竞品和 Apple App Search 市场数据。
 
-只有所选 AI Provider 和 DataForSEO 凭据齐全且 `RESEARCH_PROVIDER=real`
-时才进入真实模式，否则自动回退到有明确标识的 Demo 模式。OpenAI 模式固定使用
-Responses API，并默认发送 `store=false`。Reddit、X 与 App Store 的自动连接器不在
-本次 MVP 内；这些数据可以先通过手工信号或 CSV 导入。
+OpenAI 模式使用 Responses API，并默认发送 `store=false`。Reddit 与 X 可以先
+通过手工信号或 CSV 导入；信号在处理或关联后会成为带原文与来源的证据。
 
-默认情况下，7 天内的调研直接复用缓存。交互式批量更新使用一个 Live 任务查询所有到期关键词；`npm run research:batch` 使用 Standard Queue，适合由 cron 或部署平台定时执行。相同候选的并发调研会返回 `409`，调研接口默认按客户端限制为每小时 30 次。
+默认情况下，7 天内的调研直接复用缓存。生产调度器和
+`npm run research:batch` 共享持久化任务锁、重试、每日预算和任务历史。相同候选
+的并发调研返回 `409`，新用户证据会立即把候选标记为待重新判断。
 
 ## 7. 测试策略
 

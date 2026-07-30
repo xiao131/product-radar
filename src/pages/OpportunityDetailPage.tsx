@@ -111,6 +111,7 @@ export function OpportunityDetailPage() {
 
   const { opportunity, evidence, reports, signals } = detail;
   const report = reports[0];
+  const evidenceById = new Map(evidence.map((item) => [item.id, item]));
 
   return (
     <div className="detail-page">
@@ -158,6 +159,15 @@ export function OpportunityDetailPage() {
                     <strong>{report.recommendedAction}</strong>
                   </div>
                 </div>
+                {report.guardrail?.applied && (
+                  <div className="guardrail-callout">
+                    <ShieldAlert size={18} />
+                    <div>
+                      <strong>证据充分性保护已介入</strong>
+                      <p>{report.guardrail.reasons.join("；")}</p>
+                    </div>
+                  </div>
+                )}
                 <div className="argument-grid">
                   <div className="argument argument--for">
                     <h3><CheckCircle2 size={17} /> 支持开发</h3>
@@ -172,6 +182,24 @@ export function OpportunityDetailPage() {
                     </ul>
                   </div>
                 </div>
+                {report.citedClaims && report.citedClaims.length > 0 && (
+                  <div className="cited-claims">
+                    <span className="eyebrow">TRACEABLE CLAIMS</span>
+                    <h3>关键判断与证据引用</h3>
+                    {report.citedClaims.map((claim) => (
+                      <div key={`${claim.text}-${claim.evidenceIds.join("-")}`}>
+                        <p>{claim.text}</p>
+                        <span>
+                          {claim.evidenceIds
+                            .map((id) => evidenceById.get(id))
+                            .filter(Boolean)
+                            .map((item) => item!.sourceName)
+                            .join(" · ")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <DimensionGrid dimensions={report.dimensionScores} />
               </>
             ) : (
@@ -244,7 +272,11 @@ export function OpportunityDetailPage() {
                         <VerdictBadge verdict={item.verdict} />
                       </div>
                       <p>{item.changeSummary}</p>
-                      <span>{shortDate(item.createdAt)} · {item.providerMode}</span>
+                      <span>
+                        {shortDate(item.createdAt)} · {item.providerMode}
+                        {item.modelId ? ` · ${item.modelId}` : ""}
+                        {item.promptVersion ? ` · ${item.promptVersion}` : ""}
+                      </span>
                     </div>
                   </article>
                 ))}

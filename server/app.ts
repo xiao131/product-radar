@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
+import helmet from "helmet";
 import { z } from "zod";
 import { isAiConfigured, type AppConfig } from "./config.js";
 import { parseSignalCsv } from "./csv.js";
 import type { RadarDatabase } from "./db.js";
+import { logEvent, requestLogger } from "./logger.js";
 import {
   mapEvidence,
   mapOpportunity,
@@ -12,13 +14,23 @@ import {
   mapSignal,
 } from "./mappers.js";
 import {
-  researchDueOpportunities,
   ResearchInProgressError,
   researchOpportunity,
 } from "./research.js";
+import { latestSchemaVersion } from "./migrations.js";
+import { createSecurity, fixedWindowRateLimiter } from "./security.js";
+import { linkSignalEvidence } from "./signal-evidence.js";
+import {
+  JobAlreadyRunningError,
+  runResearchJob,
+  startBackupJob,
+  startResearchJob,
+} from "./jobs.js";
+import { UsageBudgetExceededError, UsageLedger } from "./usage.js";
 import {
   createProductSchema,
   createSignalSchema,
+  linkSignalSchema,
   opportunityUpdateSchema,
   updateProductSchema,
 } from "../shared/schemas.js";
@@ -26,6 +38,8 @@ import type {
   DashboardData,
   Opportunity,
   OpportunityDetail,
+  OpportunityOption,
+  OperationsStatus,
   Paginated,
   Product,
   Signal,
@@ -52,6 +66,11 @@ const batchResearchRequestSchema = z.object({
   delivery: z.enum(["live"]).default("live"),
 });
 
+const opportunityOptionsQuerySchema = z.object({
+  query: z.string().trim().max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 const sortColumns = {
   score: "score",
   scoreDelta: "score_delta",
@@ -73,6 +92,19 @@ function now() {
   return new Date().toISOString();
 }
 
+function markPortfolioDependentResearchDue(
+  db: RadarDatabase,
+  changedAt: string,
+) {
+  db.prepare(
+    `UPDATE opportunities
+     SET research_status = 'UNRESEARCHED',
+         last_researched_at = NULL,
+         change_summary = '产品组合发生变化，等待重新评估资产复用与个人匹配。',
+         updated_at = ?`,
+  ).run(changedAt);
+}
+
 function toSqlUpdates(input: Record<string, unknown>, mapping: Record<string, string>) {
   return Object.entries(input)
     .filter(([key]) => mapping[key])
@@ -81,7 +113,7 @@ function toSqlUpdates(input: Record<string, unknown>, mapping: Record<string, st
 
 function handleError(
   error: unknown,
-  _request: Request,
+  request: Request,
   response: Response,
   _next: NextFunction,
 ) {
@@ -90,60 +122,117 @@ function handleError(
     return;
   }
   const message = error instanceof Error ? error.message : "服务器发生未知错误";
-  const status =
-    error instanceof ResearchInProgressError
-      ? 409
-      : /找不到/.test(message)
-        ? 404
-        : /^CSV /.test(message)
-          ? 400
-          : 500;
-  response.status(status).json({ error: message });
-}
-
-function createResearchRateLimiter(limit: number) {
-  const clients = new Map<string, { count: number; resetAt: number }>();
-  return (request: Request, response: Response, next: NextFunction) => {
-    const currentTime = Date.now();
-    const key = request.ip || request.socket.remoteAddress || "unknown";
-    const current = clients.get(key);
-    const state =
-      !current || current.resetAt <= currentTime
-        ? { count: 0, resetAt: currentTime + 60 * 60 * 1_000 }
-        : current;
-    state.count += 1;
-    clients.set(key, state);
-    response.setHeader("X-RateLimit-Limit", String(limit));
-    response.setHeader(
-      "X-RateLimit-Remaining",
-      String(Math.max(0, limit - state.count)),
-    );
-    if (state.count > limit) {
-      response.setHeader(
-        "Retry-After",
-        String(Math.ceil((state.resetAt - currentTime) / 1_000)),
-      );
-      response.status(429).json({ error: "调研请求过于频繁，请稍后再试" });
-      return;
-    }
-    next();
-  };
+  let status = 500;
+  if (
+    error instanceof ResearchInProgressError ||
+    error instanceof JobAlreadyRunningError
+  ) {
+    status = 409;
+  } else if (error instanceof UsageBudgetExceededError) {
+    status = 429;
+  } else if (/找不到/.test(message)) {
+    status = 404;
+  } else if (/^CSV /.test(message)) {
+    status = 400;
+  }
+  if (status === 500) {
+    logEvent("error", "request_failed", {
+      requestId: response.locals.requestId,
+      method: request.method,
+      path: request.path,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      message,
+    });
+  }
+  response
+    .status(status)
+    .json({ error: status === 500 ? "服务器暂时无法完成请求" : message });
 }
 
 export function createApp(db: RadarDatabase, config: AppConfig) {
   const app = express();
-  const researchRateLimiter = createResearchRateLimiter(
-    config.researchRateLimitPerHour,
+  if (config.trustProxyHops > 0) app.set("trust proxy", config.trustProxyHops);
+  app.disable("x-powered-by");
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          fontSrc: ["'self'"],
+          imgSrc: ["'self'", "data:", "https:"],
+          connectSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          frameAncestors: ["'none'"],
+          upgradeInsecureRequests:
+            config.appEnv === "production" ? [] : null,
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+    }),
   );
+  app.use(requestLogger);
   app.use(express.json({ limit: "2mb" }));
 
-  app.get("/api/health", (_request, response) => {
+  const security = createSecurity(config);
+  const researchRateLimiter = fixedWindowRateLimiter(
+    config.researchRateLimitPerHour,
+    60 * 60 * 1_000,
+    "research",
+  );
+
+  app.get(["/api/health", "/api/health/live"], (_request, response) => {
     response.json({
       ok: true,
-      mode: config.researchProvider === "real" ? "REAL" : "DEMO",
+      service: "product-radar",
       time: now(),
     });
   });
+
+  app.get("/api/health/ready", (_request, response) => {
+    try {
+      const databaseCheck = db.prepare("SELECT 1 AS ok").get() as { ok: number };
+      const schemaVersion = (
+        db
+          .prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations")
+          .get() as { version: number }
+      ).version;
+      const ready =
+        databaseCheck.ok === 1 && schemaVersion === latestSchemaVersion();
+      response.status(ready ? 200 : 503).json({
+        ok: ready,
+        database: databaseCheck.ok === 1,
+        schemaCurrent: schemaVersion === latestSchemaVersion(),
+        time: now(),
+      });
+    } catch {
+      response.status(503).json({ ok: false, database: false, time: now() });
+    }
+  });
+
+  app.get(
+    "/api/auth/session",
+    security.requestRateLimiter,
+    security.sessionResponse,
+  );
+  app.post(
+    "/api/auth/login",
+    security.loginRateLimiter,
+    async (request, response, next) => {
+      try {
+        await security.login(request, response);
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  app.use("/api", security.requestRateLimiter);
+  app.use("/api", security.requireAuthentication);
+  app.use("/api", security.requireCsrf);
+  app.post("/api/auth/logout", security.logout);
 
   app.get("/api/settings", (_request, response) => {
     response.json({
@@ -156,7 +245,15 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       searchConfigured: Boolean(config.dataForSeoLogin && config.dataForSeoPassword),
       researchFreshnessDays: config.researchFreshnessDays,
       researchRateLimitPerHour: config.researchRateLimitPerHour,
-      databasePath: config.databasePath,
+      market: {
+        locationCode: config.marketLocationCode,
+        languageCode: config.marketLanguageCode,
+        countryCode: config.marketCountryCode,
+      },
+      sources: {
+        webCompetitors: config.collectWebCompetitors,
+        appleMarket: config.collectAppleMarket,
+      },
     });
   });
 
@@ -252,6 +349,40 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     response.json(result);
   });
 
+  app.get("/api/opportunities/options", (request, response) => {
+    const query = opportunityOptionsQuerySchema.parse(request.query);
+    const values: unknown[] = [];
+    const where = query.query
+      ? "WHERE name LIKE ? OR one_liner LIKE ?"
+      : "";
+    if (query.query) {
+      const search = `%${query.query}%`;
+      values.push(search, search);
+    }
+    const options = (
+      db
+        .prepare(
+          `SELECT id, name, recommended_platform
+           FROM opportunities
+           ${where}
+           ORDER BY score DESC, updated_at DESC
+           LIMIT ?`,
+        )
+        .all(...values, query.limit) as Array<{
+        id: string;
+        name: string;
+        recommended_platform: OpportunityOption["recommendedPlatform"];
+      }>
+    ).map(
+      (row): OpportunityOption => ({
+        id: row.id,
+        name: row.name,
+        recommendedPlatform: row.recommended_platform,
+      }),
+    );
+    response.json(options);
+  });
+
   app.get("/api/opportunities/:id", (request, response) => {
     const opportunityRow = db
       .prepare("SELECT * FROM opportunities WHERE id = ?")
@@ -293,9 +424,20 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       recommendedPlatform: "recommended_platform",
     });
     if (updates.length) {
+      const changedAt = now();
       db.prepare(
-        `UPDATE opportunities SET ${updates.map((entry) => `${entry.column} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
-      ).run(...updates.map((entry) => entry.value), now(), request.params.id);
+        `UPDATE opportunities
+         SET ${updates.map((entry) => `${entry.column} = ?`).join(", ")},
+             research_status = 'UNRESEARCHED',
+             last_researched_at = NULL,
+             change_summary = '候选定义发生变化，等待重新调研。',
+             updated_at = ?
+         WHERE id = ?`,
+      ).run(
+        ...updates.map((entry) => entry.value),
+        now(),
+        request.params.id,
+      );
     }
     const row = db
       .prepare("SELECT * FROM opportunities WHERE id = ?")
@@ -336,17 +478,156 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     async (request, response, next) => {
       try {
         const input = batchResearchRequestSchema.parse(request.body ?? {});
-        const result = await researchDueOpportunities(
+        const job = await runResearchJob(
           db,
           config,
+          "manual",
           input.delivery,
         );
-        response.json(result);
+        response.json(job.result);
       } catch (error) {
         next(error);
       }
     },
   );
+
+  app.get("/api/operations/status", (_request, response) => {
+    const cutoff = new Date(
+      Date.now() - config.researchFreshnessDays * 24 * 60 * 60 * 1_000,
+    ).toISOString();
+    const freshness = db
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN last_researched_at IS NULL OR last_researched_at < ? THEN 1 ELSE 0 END) AS due,
+           SUM(CASE WHEN research_status = 'RUNNING' THEN 1 ELSE 0 END) AS running,
+           SUM(CASE WHEN research_status = 'FAILED' THEN 1 ELSE 0 END) AS failed,
+           MAX(last_researched_at) AS latest_research_at
+         FROM opportunities`,
+      )
+      .get(cutoff) as {
+      due: number | null;
+      running: number | null;
+      failed: number | null;
+      latest_research_at: string | null;
+    };
+    const jobs = db
+      .prepare(
+        `SELECT id, job_type, trigger_type, status, error, started_at, finished_at
+         FROM job_runs
+         ORDER BY started_at DESC
+         LIMIT 12`,
+      )
+      .all() as Array<{
+      id: string;
+      job_type: string;
+      trigger_type: string;
+      status: string;
+      error: string | null;
+      started_at: string;
+      finished_at: string | null;
+    }>;
+    const backup = db
+      .prepare(
+        `SELECT status, path, size_bytes, integrity_result, finished_at
+         FROM backup_runs
+         ORDER BY started_at DESC
+         LIMIT 1`,
+      )
+      .get() as
+      | {
+          status: string;
+          path: string | null;
+          size_bytes: number | null;
+          integrity_result: string | null;
+          finished_at: string | null;
+        }
+      | undefined;
+    const status: OperationsStatus = {
+      mode: config.researchProvider === "real" ? "REAL" : "DEMO",
+      market: {
+        locationCode: config.marketLocationCode,
+        languageCode: config.marketLanguageCode,
+        countryCode: config.marketCountryCode,
+      },
+      sources: {
+        ai: isAiConfigured(config),
+        search: Boolean(config.dataForSeoLogin && config.dataForSeoPassword),
+        webCompetitors: Boolean(
+          config.dataForSeoLogin &&
+            config.dataForSeoPassword &&
+            config.collectWebCompetitors,
+        ),
+        appleMarket: Boolean(
+          config.dataForSeoLogin &&
+            config.dataForSeoPassword &&
+            config.collectAppleMarket,
+        ),
+      },
+      freshness: {
+        due: Number(freshness.due ?? 0),
+        running: Number(freshness.running ?? 0),
+        failed: Number(freshness.failed ?? 0),
+        latestResearchAt: freshness.latest_research_at,
+      },
+      usage: new UsageLedger(db, config).today(),
+      scheduler: {
+        enabled: config.schedulerEnabled,
+        researchHour: config.schedulerResearchHour,
+        backupHour: config.schedulerBackupHour,
+      },
+      jobs: jobs.map((job) => ({
+        id: job.id,
+        type: job.job_type,
+        trigger: job.trigger_type,
+        status: job.status,
+        error: job.error,
+        startedAt: job.started_at,
+        finishedAt: job.finished_at,
+      })),
+      latestBackup: backup
+        ? {
+            status: backup.status,
+            fileName: backup.path
+              ? backup.path.split(/[\\/]/).at(-1) ?? null
+              : null,
+            sizeBytes: backup.size_bytes,
+            integrity: backup.integrity_result,
+            finishedAt: backup.finished_at,
+          }
+        : null,
+    };
+    response.json(status);
+  });
+
+  app.post(
+    "/api/operations/research",
+    researchRateLimiter,
+    async (_request, response, next) => {
+      try {
+        const job = startResearchJob(db, config, "manual", "live");
+        void job.completion.catch(() => undefined);
+        response.status(202).json({
+          jobId: job.jobId,
+          status: job.status,
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  app.post("/api/operations/backup", async (_request, response, next) => {
+    try {
+      const job = startBackupJob(db, config, "manual");
+      void job.completion.catch(() => undefined);
+      response.status(202).json({
+        jobId: job.jobId,
+        status: job.status,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/api/products", (_request, response) => {
     response.json(
@@ -367,13 +648,16 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       createdAt: now(),
       updatedAt: now(),
     };
-    db.prepare(`
-      INSERT INTO products (
-        id, name, platform, status, url, description, current_focus, created_at, updated_at
-      ) VALUES (
-        @id, @name, @platform, @status, @url, @description, @currentFocus, @createdAt, @updatedAt
-      )
-    `).run(product);
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO products (
+          id, name, platform, status, url, description, current_focus, created_at, updated_at
+        ) VALUES (
+          @id, @name, @platform, @status, @url, @description, @currentFocus, @createdAt, @updatedAt
+        )
+      `).run(product);
+      markPortfolioDependentResearchDue(db, product.updatedAt);
+    })();
     response.status(201).json(product);
   });
 
@@ -388,9 +672,19 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       currentFocus: "current_focus",
     });
     if (updates.length) {
-      db.prepare(
-        `UPDATE products SET ${updates.map((entry) => `${entry.column} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
-      ).run(...updates.map((entry) => entry.value), now(), request.params.id);
+      const changedAt = now();
+      db.transaction(() => {
+        const result = db.prepare(
+          `UPDATE products SET ${updates.map((entry) => `${entry.column} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
+        ).run(
+          ...updates.map((entry) => entry.value),
+          changedAt,
+          request.params.id,
+        );
+        if (result.changes > 0) {
+          markPortfolioDependentResearchDue(db, changedAt);
+        }
+      })();
     }
     const row = db
       .prepare("SELECT * FROM products WHERE id = ?")
@@ -470,7 +764,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     response.status(201).json({ imported: insert().length });
   });
 
-  app.post("/api/signals/:id/process", (request, response) => {
+  app.post("/api/signals/:id/link", (request, response) => {
+    const input = linkSignalSchema.parse(request.body);
     const signalRow = db
       .prepare("SELECT * FROM signals WHERE id = ?")
       .get(request.params.id) as Record<string, unknown> | undefined;
@@ -479,7 +774,35 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       return;
     }
     const signal = mapSignal(signalRow);
+    linkSignalEvidence(db, signal, input.opportunityId);
+    const opportunity = db
+      .prepare("SELECT * FROM opportunities WHERE id = ?")
+      .get(input.opportunityId) as Record<string, unknown>;
+    response.json(mapOpportunity(opportunity));
+  });
+
+  app.post("/api/signals/:id/process", (request, response) => {
+    const requestedLink = z
+      .object({ opportunityId: z.string().uuid().optional() })
+      .parse(request.body ?? {});
+    const signalRow = db
+      .prepare("SELECT * FROM signals WHERE id = ?")
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    if (!signalRow) {
+      response.status(404).json({ error: "找不到这条信号" });
+      return;
+    }
+    const signal = mapSignal(signalRow);
+    if (requestedLink.opportunityId) {
+      linkSignalEvidence(db, signal, requestedLink.opportunityId);
+      const linked = db
+        .prepare("SELECT * FROM opportunities WHERE id = ?")
+        .get(requestedLink.opportunityId) as Record<string, unknown>;
+      response.json(mapOpportunity(linked));
+      return;
+    }
     if (signal.opportunityId) {
+      linkSignalEvidence(db, signal, signal.opportunityId);
       const existing = db
         .prepare("SELECT * FROM opportunities WHERE id = ?")
         .get(signal.opportunityId) as Record<string, unknown>;
@@ -513,9 +836,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         createdAt,
         createdAt,
       );
-      db.prepare(
-        "UPDATE signals SET status = 'PROCESSED', opportunity_id = ?, updated_at = ? WHERE id = ?",
-      ).run(opportunityId, createdAt, signal.id);
+      linkSignalEvidence(db, signal, opportunityId);
     })();
     const created = db
       .prepare("SELECT * FROM opportunities WHERE id = ?")

@@ -4,10 +4,17 @@ import express from "express";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createDatabase } from "./db.js";
+import { recoverStaleJobs, waitForActiveJobs } from "./jobs.js";
+import { startScheduler } from "./scheduler.js";
 
 const config = loadConfig();
-const database = createDatabase(config.databasePath);
+const database = createDatabase(config.databasePath, {
+  seedDemoData: config.seedDemoData,
+  busyTimeoutMs: config.databaseBusyTimeoutMs,
+});
+recoverStaleJobs(database);
 const app = createApp(database, config);
+const scheduler = startScheduler(database, config);
 
 if (process.env.NODE_ENV === "production") {
   const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -18,14 +25,20 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-const server = app.listen(config.port, "127.0.0.1", () => {
+const server = app.listen(config.port, config.host, () => {
   console.log(
-    `Product Radar API running at http://127.0.0.1:${config.port} (${config.researchProvider.toUpperCase()} mode)`,
+    `Product Radar API running at http://${config.host}:${config.port} (${config.researchProvider.toUpperCase()} mode)`,
   );
 });
 
+let shuttingDown = false;
+
 function shutdown() {
-  server.close(() => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  scheduler.stop();
+  server.close(async () => {
+    await waitForActiveJobs(database);
     database.close();
     process.exit(0);
   });

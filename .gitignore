@@ -2,8 +2,11 @@ node_modules/
 dist/
 data/*.db
 data/*.db-*
+data/backups/
+data/test-backups/
 .env
 .env.local
+.env.production
 coverage/
 *.log
 .DS_Store

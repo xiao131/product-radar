@@ -11,8 +11,14 @@ export type AiReasoningEffort =
   | "max";
 
 export interface AppConfig {
+  appEnv: "development" | "test" | "production";
+  host: string;
   port: number;
+  publicOrigin: string;
+  trustProxyHops: number;
   databasePath: string;
+  databaseBusyTimeoutMs: number;
+  seedDemoData: boolean;
   researchProvider: "demo" | "real";
   aiProvider: AiProvider;
   aiModel: string;
@@ -23,10 +29,32 @@ export interface AppConfig {
   aiDisableResponseStorage: boolean;
   dataForSeoLogin?: string;
   dataForSeoPassword?: string;
+  marketLocationCode: number;
+  marketLanguageCode: string;
+  marketCountryCode: string;
+  collectWebCompetitors: boolean;
+  collectAppleMarket: boolean;
   researchFreshnessDays: number;
   researchRateLimitPerHour: number;
+  requestRateLimitPerMinute: number;
+  loginRateLimitPer15Minutes: number;
+  providerRequestTimeoutMs: number;
+  providerMaxRetries: number;
+  maxAiRunsPerDay: number;
+  maxDataForSeoTasksPerDay: number;
   dataForSeoBatchPollIntervalMs: number;
   dataForSeoBatchTimeoutMs: number;
+  authRequired: boolean;
+  adminPasswordHash?: string;
+  sessionSecret?: string;
+  sessionTtlHours: number;
+  schedulerEnabled: boolean;
+  schedulerPollIntervalMs: number;
+  schedulerResearchHour: number;
+  schedulerBackupHour: number;
+  backupDirectory: string;
+  backupRetentionCount: number;
+  alertWebhookUrl?: string;
 }
 
 function positiveNumber(value: string | undefined, fallback: number) {
@@ -34,9 +62,31 @@ function positiveNumber(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function nonNegativeNumber(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 function booleanValue(value: string | undefined, fallback: boolean) {
-  if (value === undefined) return fallback;
+  if (value === undefined || value === "") return fallback;
   return !["0", "false", "no", "off"].includes(value.trim().toLowerCase());
+}
+
+function integerInRange(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum
+    ? parsed
+    : fallback;
+}
+
+function requireProductionValue(name: string, value: string | undefined) {
+  if (!value) throw new Error(`生产配置缺少 ${name}`);
+  return value;
 }
 
 function aiProviderValue(value: string | undefined): AiProvider {
@@ -65,6 +115,17 @@ export function isAiConfigured(config: AppConfig) {
 }
 
 export function loadConfig(): AppConfig {
+  const appEnv =
+    process.env.APP_ENV === "production" || process.env.NODE_ENV === "production"
+      ? "production"
+      : process.env.APP_ENV === "test" || process.env.NODE_ENV === "test"
+        ? "test"
+        : "development";
+  const host = process.env.HOST ?? "127.0.0.1";
+  const port = integerInRange(process.env.PORT, 8787, 1, 65_535);
+  const publicOrigin =
+    process.env.PUBLIC_ORIGIN ??
+    `${appEnv === "production" ? "https" : "http"}://${host}:${port}`;
   const requestedResearchProvider =
     process.env.RESEARCH_PROVIDER === "real" ? "real" : "demo";
   const aiProvider = aiProviderValue(process.env.AI_PROVIDER);
@@ -78,10 +139,63 @@ export function loadConfig(): AppConfig {
   const hasSearch = Boolean(
     process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD,
   );
+  const authRequired = booleanValue(process.env.AUTH_REQUIRED, appEnv === "production");
+  const seedDemoData = booleanValue(process.env.SEED_DEMO_DATA, appEnv !== "production");
+
+  if (appEnv === "production") {
+    const configuredOrigin = requireProductionValue(
+      "PUBLIC_ORIGIN",
+      process.env.PUBLIC_ORIGIN,
+    );
+    let parsedOrigin: URL;
+    try {
+      parsedOrigin = new URL(configuredOrigin);
+    } catch {
+      throw new Error("PUBLIC_ORIGIN 必须是有效的 HTTPS Origin");
+    }
+    if (
+      parsedOrigin.protocol !== "https:" ||
+      parsedOrigin.origin !== configuredOrigin.replace(/\/+$/, "")
+    ) {
+      throw new Error("PUBLIC_ORIGIN 必须是没有路径的 HTTPS Origin");
+    }
+    if (!["demo", "real"].includes(process.env.RESEARCH_PROVIDER ?? "")) {
+      throw new Error("生产环境必须显式设置 RESEARCH_PROVIDER=demo 或 real");
+    }
+    if (requestedResearchProvider === "real" && (!hasAi || !hasSearch)) {
+      throw new Error(
+        "RESEARCH_PROVIDER=real 时必须配置 AI 凭据、DATAFORSEO_LOGIN 和 DATAFORSEO_PASSWORD",
+      );
+    }
+    if (!authRequired) throw new Error("生产环境不允许关闭 AUTH_REQUIRED");
+    const passwordHash = requireProductionValue(
+      "ADMIN_PASSWORD_HASH",
+      process.env.ADMIN_PASSWORD_HASH,
+    );
+    if (!/^scrypt\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(passwordHash)) {
+      throw new Error("ADMIN_PASSWORD_HASH 格式无效，请使用 npm run auth:hash 生成");
+    }
+    const secret = requireProductionValue("SESSION_SECRET", process.env.SESSION_SECRET);
+    if (secret.length < 32) throw new Error("SESSION_SECRET 至少需要 32 个字符");
+  }
 
   return {
-    port: Number(process.env.PORT ?? 8787),
+    appEnv,
+    host,
+    port,
+    publicOrigin: publicOrigin.replace(/\/+$/, ""),
+    trustProxyHops: integerInRange(
+      process.env.TRUST_PROXY_HOPS,
+      0,
+      0,
+      10,
+    ),
     databasePath: path.resolve(process.env.DATABASE_PATH ?? "./data/product-radar.db"),
+    databaseBusyTimeoutMs: positiveNumber(
+      process.env.DATABASE_BUSY_TIMEOUT_MS,
+      5_000,
+    ),
+    seedDemoData,
     researchProvider:
       requestedResearchProvider === "real" && hasAi && hasSearch ? "real" : "demo",
     aiProvider,
@@ -96,10 +210,46 @@ export function loadConfig(): AppConfig {
     ),
     dataForSeoLogin: process.env.DATAFORSEO_LOGIN,
     dataForSeoPassword: process.env.DATAFORSEO_PASSWORD,
+    marketLocationCode: integerInRange(
+      process.env.MARKET_LOCATION_CODE,
+      2840,
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    marketLanguageCode: process.env.MARKET_LANGUAGE_CODE?.trim() || "en",
+    marketCountryCode: process.env.MARKET_COUNTRY_CODE?.trim().toUpperCase() || "US",
+    collectWebCompetitors: booleanValue(
+      process.env.COLLECT_WEB_COMPETITORS,
+      true,
+    ),
+    collectAppleMarket: booleanValue(process.env.COLLECT_APPLE_MARKET, true),
     researchFreshnessDays: positiveNumber(process.env.RESEARCH_FRESHNESS_DAYS, 7),
     researchRateLimitPerHour: positiveNumber(
       process.env.RESEARCH_RATE_LIMIT_PER_HOUR,
       30,
+    ),
+    requestRateLimitPerMinute: positiveNumber(
+      process.env.REQUEST_RATE_LIMIT_PER_MINUTE,
+      240,
+    ),
+    loginRateLimitPer15Minutes: positiveNumber(
+      process.env.LOGIN_RATE_LIMIT_PER_15_MINUTES,
+      10,
+    ),
+    providerRequestTimeoutMs: positiveNumber(
+      process.env.PROVIDER_REQUEST_TIMEOUT_MS,
+      120_000,
+    ),
+    providerMaxRetries: integerInRange(
+      process.env.PROVIDER_MAX_RETRIES,
+      2,
+      0,
+      8,
+    ),
+    maxAiRunsPerDay: nonNegativeNumber(process.env.MAX_AI_RUNS_PER_DAY, 30),
+    maxDataForSeoTasksPerDay: nonNegativeNumber(
+      process.env.MAX_DATAFORSEO_TASKS_PER_DAY,
+      100,
     ),
     dataForSeoBatchPollIntervalMs: positiveNumber(
       process.env.DATAFORSEO_BATCH_POLL_INTERVAL_MS,
@@ -109,5 +259,39 @@ export function loadConfig(): AppConfig {
       process.env.DATAFORSEO_BATCH_TIMEOUT_MS,
       4 * 60 * 60 * 1_000,
     ),
+    authRequired,
+    adminPasswordHash: process.env.ADMIN_PASSWORD_HASH,
+    sessionSecret: process.env.SESSION_SECRET,
+    sessionTtlHours: positiveNumber(process.env.SESSION_TTL_HOURS, 24),
+    schedulerEnabled: booleanValue(
+      process.env.SCHEDULER_ENABLED,
+      appEnv === "production",
+    ),
+    schedulerPollIntervalMs: positiveNumber(
+      process.env.SCHEDULER_POLL_INTERVAL_MS,
+      15 * 60 * 1_000,
+    ),
+    schedulerResearchHour: integerInRange(
+      process.env.SCHEDULER_RESEARCH_HOUR,
+      3,
+      0,
+      23,
+    ),
+    schedulerBackupHour: integerInRange(
+      process.env.SCHEDULER_BACKUP_HOUR,
+      2,
+      0,
+      23,
+    ),
+    backupDirectory: path.resolve(
+      process.env.BACKUP_DIRECTORY ?? "./data/backups",
+    ),
+    backupRetentionCount: integerInRange(
+      process.env.BACKUP_RETENTION_COUNT,
+      14,
+      1,
+      365,
+    ),
+    alertWebhookUrl: process.env.ALERT_WEBHOOK_URL,
   };
 }

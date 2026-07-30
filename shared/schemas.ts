@@ -38,6 +38,10 @@ export const opportunityUpdateSchema = z.object({
   recommendedPlatform: platformSchema.optional(),
 });
 
+export const linkSignalSchema = z.object({
+  opportunityId: z.string().uuid(),
+});
+
 export const dimensionScoreSchema = z.object({
   key: z.enum([
     "demand",
@@ -55,6 +59,25 @@ export const dimensionScoreSchema = z.object({
   weight: z.number().min(0).max(1),
   explanation: z.string(),
 });
+
+const aiDimensionScoreSchema = z.object({
+  key: dimensionScoreSchema.shape.key,
+  score: z.number().min(0).max(100),
+  explanation: z.string(),
+});
+
+const uniqueAiDimensionScoresSchema = z
+  .array(aiDimensionScoreSchema)
+  .length(9)
+  .superRefine((items, context) => {
+    const keys = new Set(items.map((item) => item.key));
+    if (keys.size !== 9) {
+      context.addIssue({
+        code: "custom",
+        message: "九个评分维度必须唯一且完整",
+      });
+    }
+  });
 
 export const researchStageOneSchema = z.object({
   factualSummary: z.string(),
@@ -74,11 +97,19 @@ export const researchStageThreeSchema = z.object({
   verdict: verdictSchema,
   recommendedPlatform: platformSchema,
   recommendedAction: z.string(),
-  score: z.number().min(0).max(100),
   confidence: z.number().min(0).max(100),
-  dimensionScores: z.array(dimensionScoreSchema).length(9),
+  dimensionScores: uniqueAiDimensionScoresSchema,
   supportingReasons: z.array(z.string()).min(2).max(8),
   opposingReasons: z.array(z.string()).min(2).max(8),
+  citedClaims: z
+    .array(
+      z.object({
+        text: z.string(),
+        evidenceIds: z.array(z.string()).min(1).max(8),
+      }),
+    )
+    .min(2)
+    .max(10),
   unknowns: z.array(z.string()).max(8),
   risks: z.array(z.string()).max(8),
   platformAnalysis: z.object({

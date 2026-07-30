@@ -88,6 +88,8 @@ export function mapEvidence(row: Row): EvidenceItem {
     rawExcerpt: row.raw_excerpt ? String(row.raw_excerpt) : null,
     collectedAt: String(row.collected_at),
     freshnessDays: Number(row.freshness_days),
+    fingerprint: row.fingerprint ? String(row.fingerprint) : null,
+    market: row.market ? String(row.market) : null,
   };
 }
 
@@ -122,6 +124,15 @@ export function mapReport(row: Row): ResearchReport {
       estimatedDays: 0,
     },
     evidenceIds: payload.evidenceIds ?? [],
+    citedClaims: payload.citedClaims ?? [],
+    modelId: payload.modelId ?? (row.model_id ? String(row.model_id) : null),
+    promptVersion:
+      payload.promptVersion ??
+      (row.prompt_version ? String(row.prompt_version) : null),
+    evidenceCoverage: payload.evidenceCoverage,
+    evidenceSnapshot: payload.evidenceSnapshot,
+    guardrail: payload.guardrail,
+    usage: payload.usage,
     changeSummary: String(row.change_summary),
     researcherSummary: String(row.researcher_summary),
     debateSummary: String(row.debate_summary),

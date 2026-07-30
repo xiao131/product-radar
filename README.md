@@ -80,6 +80,7 @@
 - 新证据不会覆盖旧报告；
 - 每次调研生成一个新版本；
 - 保存旧分数、新分数、变化值和变化原因；
+- 新用户信号、候选定义或产品组合变化会把相关判断重新标记为待更新；
 - 一个今天不值得做的产品，未来可以因趋势或新数据重新进入优先队列。
 
 ## 产品如何工作
@@ -203,29 +204,52 @@ AI_MODEL=openai/gpt-5.6-terra
 - 过去月份搜索序列变化；
 - 广告竞争指数；
 - CPC 商业意图；
+- Google Organic SERP 竞品域名与结果密度；
+- Apple App Search 竞品、评分与评论量；
+- 手工、CSV、Reddit、App Review 等信号原文；
 - 三阶段 AI 结构化判断。
 
-只有所选 AI Provider 和 DataForSEO 凭据全部存在时，系统才会进入 `REAL` 模式。否则自动回退到 `DEMO`。
+市场通过 `MARKET_LOCATION_CODE`、`MARKET_LANGUAGE_CODE` 和
+`MARKET_COUNTRY_CODE` 配置。生产环境请求 `REAL` 模式但凭据不完整时，服务会
+拒绝启动，避免在你不知情的情况下回退到 Demo。
 
-为控制真实模式成本，系统默认复用 7 天内的调研结果。详情页的“检查并更新”会优先命中缓存；只有确认“强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000 个到期关键词合并为一个 Live 任务。
+为控制真实模式成本，系统默认复用 7 天内的调研结果。详情页的“检查并更新”会优先命中缓存；只有确认“强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000 个到期关键词合并为一个任务。每日 AI 和 DataForSEO 使用量由 SQLite 持久化预算限制。
+每日预算和定时小时都以服务器本地时区计算，部署时应明确设置服务器的
+`TZ`，例如 `Asia/Shanghai`。
 
-需要定时低成本更新时，可以由 cron、launchd 或部署平台的定时任务执行：
+生产环境可以启用内置调度器自动更新，也可以手工执行：
 
 ```bash
 npm run research:batch
 ```
 
-这个命令使用 DataForSEO Standard Queue，将所有到期关键词合并为一个任务，并等待结果就绪。任务通常比 Live 便宜，但可能需要较长时间，因此不在交互式页面请求中执行。批量采集后，只有首次调研或市场指标出现明显变化的候选才会重新调用三阶段 AI；其余候选只更新证据时间。
+这个命令使用 DataForSEO Standard Queue，并通过数据库全局锁避免重复任务。批量采集后，只有首次调研、新增用户证据或市场指标出现明显变化的候选才会重新调用三阶段 AI；其余候选只更新证据时间。
 
 ## 环境变量
 
 | 变量 | 默认值 | 是否必需 | 用途 |
 |---|---:|---:|---|
+| `APP_ENV` | `development` | 生产必需 | `development`、`test` 或 `production` |
+| `HOST` | `127.0.0.1` | 否 | 服务监听地址 |
 | `PORT` | `8787` | 否 | Express API 和生产页面端口 |
+| `PUBLIC_ORIGIN` | 本地地址 | 生产必需 | CSRF Origin 校验使用的公开 HTTPS Origin |
+| `TRUST_PROXY_HOPS` | `0` | 否 | 反向代理跳数；确认只有一层可信代理时设为 `1` |
 | `DATABASE_PATH` | `./data/product-radar.db` | 否 | SQLite 数据库文件 |
-| `RESEARCH_PROVIDER` | `demo` | 真实模式必需 | `demo` 或 `real` |
+| `DATABASE_BUSY_TIMEOUT_MS` | `5000` | 否 | 并发写入等待时间 |
+| `SEED_DEMO_DATA` | 开发为 `true` | 否 | 是否显式写入 Demo 数据；生产默认关闭 |
+| `AUTH_REQUIRED` | 生产为 `true` | 生产必需 | 生产环境必须启用单用户登录 |
+| `ADMIN_PASSWORD_HASH` | 空 | 生产鉴权必需 | `npm run auth:hash` 生成的 scrypt 哈希 |
+| `SESSION_SECRET` | 空 | 生产鉴权必需 | 至少 32 字符的会话签名密钥 |
+| `RESEARCH_PROVIDER` | `demo` | 生产必需 | 生产环境必须显式选择 `demo` 或 `real` |
 | `RESEARCH_FRESHNESS_DAYS` | `7` | 否 | 新鲜期内复用调研结果，避免重复付费 |
 | `RESEARCH_RATE_LIMIT_PER_HOUR` | `30` | 否 | 单个客户端每小时最多发起的调研请求 |
+| `MAX_AI_RUNS_PER_DAY` | `30` | 否 | 每日最多 AI 调研流水线次数 |
+| `MAX_DATAFORSEO_TASKS_PER_DAY` | `100` | 否 | 每日最多 DataForSEO 计费任务数 |
+| `MARKET_LOCATION_CODE` | `2840` | 否 | DataForSEO 市场位置代码 |
+| `MARKET_LANGUAGE_CODE` | `en` | 否 | 调研语言代码 |
+| `MARKET_COUNTRY_CODE` | `US` | 否 | 报告展示和证据记录的国家代码 |
+| `COLLECT_WEB_COMPETITORS` | `true` | 否 | 是否采集 Google Organic 竞品 |
+| `COLLECT_APPLE_MARKET` | `true` | 否 | 是否采集 Apple App Search 数据 |
 | `AI_PROVIDER` | 自动选择 | 否 | `openai`（Responses 中转/官方 API）或 `gateway` |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai` 模式 | OpenAI-compatible API 前缀 |
 | `OPENAI_API_KEY` | 空 | `openai` 真实模式 | 通过 Bearer Header 发送的服务端鉴权密钥 |
@@ -233,6 +257,12 @@ npm run research:batch
 | `AI_MODEL` | 按 Provider 选择 | 否 | `openai` 默认 `gpt-5.6-terra`；`gateway` 默认 `openai/gpt-5.6-terra` |
 | `AI_REASONING_EFFORT` | `xhigh` | 否 | Responses 推理强度：`none`/`low`/`medium`/`high`/`xhigh`/`max` |
 | `AI_DISABLE_RESPONSE_STORAGE` | `true` | 否 | 为 `true` 时向 Responses API 发送 `store=false` |
+| `SCHEDULER_ENABLED` | 生产为 `true` | 否 | 启用自动调研和备份 |
+| `SCHEDULER_RESEARCH_HOUR` | `3` | 否 | 服务器本地时区的每日调研小时 |
+| `SCHEDULER_BACKUP_HOUR` | `2` | 否 | 服务器本地时区的每日备份小时 |
+| `BACKUP_DIRECTORY` | `./data/backups` | 否 | 一致性 SQLite 备份目录 |
+| `BACKUP_RETENTION_COUNT` | `14` | 否 | 保留的备份数量 |
+| `ALERT_WEBHOOK_URL` | 空 | 否 | 生产任务失败时发送脱敏 JSON 通知 |
 | `DATAFORSEO_LOGIN` | 空 | 真实模式必需 | DataForSEO API 登录名 |
 | `DATAFORSEO_PASSWORD` | 空 | 真实模式必需 | DataForSEO API 密码 |
 | `DATAFORSEO_BATCH_POLL_INTERVAL_MS` | `60000` | 否 | Standard Queue 结果轮询间隔 |
@@ -403,15 +433,23 @@ settings
 
 | Method | Endpoint | 说明 |
 |---|---|---|
-| `GET` | `/api/health` | 健康检查 |
+| `GET` | `/api/health/live` | 进程存活检查 |
+| `GET` | `/api/health/ready` | 数据库和迁移就绪检查 |
+| `GET` | `/api/auth/session` | 当前安全会话 |
+| `POST` | `/api/auth/login` | 单用户登录 |
+| `POST` | `/api/auth/logout` | 退出会话 |
 | `GET` | `/api/settings` | 当前运行模式与连接状态 |
 | `GET` | `/api/dashboard` | 首页数据 |
+| `GET` | `/api/operations/status` | 预算、任务、备份与新鲜度 |
+| `POST` | `/api/operations/research` | 手工更新到期数据 |
+| `POST` | `/api/operations/backup` | 创建并验证备份 |
 
 ### 候选产品
 
 | Method | Endpoint | 说明 |
 |---|---|---|
 | `GET` | `/api/opportunities` | 分页、筛选和排序 |
+| `GET` | `/api/opportunities/options` | 信号关联候选时的精简列表 |
 | `GET` | `/api/opportunities/:id` | 完整调研档案 |
 | `PATCH` | `/api/opportunities/:id` | 更新候选 |
 | `POST` | `/api/opportunities/:id/research` | 执行调研或重新评分 |
@@ -445,6 +483,7 @@ researchStatus
 | `POST` | `/api/signals` | 添加信号 |
 | `POST` | `/api/signals/import` | 导入 CSV |
 | `POST` | `/api/signals/:id/process` | 信号转候选 |
+| `POST` | `/api/signals/:id/link` | 把信号作为证据关联到已有候选 |
 
 ## 开发命令
 
@@ -477,6 +516,10 @@ npm run seed
 ## 生产部署
 
 ### 构建并运行
+
+当前仓库使用 `tsx` 直接运行服务端 TypeScript；`npm run build` 负责类型检查和
+前端静态资源构建。编译后的纯 Node 服务端产物和 Docker 镜像尚未纳入当前源码
+边界，后续会作为独立部署任务补充。
 
 ```bash
 git clone https://github.com/xiao131/product-radar.git
@@ -514,9 +557,35 @@ OpenAI Responses 或 AI Gateway + DataForSEO
 
 ```env
 DATABASE_PATH=/var/lib/product-radar/product-radar.db
+BACKUP_DIRECTORY=/var/lib/product-radar/backups
 ```
 
-确保运行服务的用户拥有该目录的读写权限，并配置定时备份。
+确保运行服务的用户拥有该目录的读写权限。应用使用 SQLite Backup API
+生成一致性快照、执行 `integrity_check` 并按保留数量自动清理。
+
+### 生产登录
+
+先生成密码哈希：
+
+```bash
+RADAR_ADMIN_PASSWORD='使用密码管理器生成的长密码' npm run auth:hash
+```
+
+把输出和随机会话密钥写入服务器 `.env`：
+
+```env
+APP_ENV=production
+PUBLIC_ORIGIN=https://radar.example.com
+AUTH_REQUIRED=true
+ADMIN_PASSWORD_HASH=scrypt$...
+SESSION_SECRET=至少32字符的高强度随机值
+SEED_DEMO_DATA=false
+RESEARCH_PROVIDER=real
+TRUST_PROXY_HOPS=1
+```
+
+生产模式缺少这些值、关闭鉴权、未显式选择调研模式，或真实模式缺少 AI /
+DataForSEO 凭据时都会拒绝启动。
 
 ### Nginx 示例
 
@@ -524,10 +593,6 @@ DATABASE_PATH=/var/lib/product-radar/product-radar.db
 server {
     listen 443 ssl http2;
     server_name radar.example.com;
-
-    # 建议使用 Basic Auth、VPN 或 Cloudflare Access。
-    auth_basic "Product Radar";
-    auth_basic_user_file /etc/nginx/.htpasswd-product-radar;
 
     location / {
         proxy_pass http://127.0.0.1:8787;
@@ -539,6 +604,9 @@ server {
     }
 }
 ```
+
+内置单用户登录已经保护雷达数据和写操作；Cloudflare Access、VPN 或 Nginx
+Basic Auth 仍可作为额外边界。
 
 ### systemd 示例
 
@@ -560,43 +628,56 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-本项目暂时没有内置多用户登录。部署到公网时，请务必使用反向代理、VPN 或访问控制服务保护网站和调研接口。
+### 备份恢复
+
+“系统状态”页面可以立即创建备份。恢复命令只会创建一个新数据库文件，不会
+覆盖现有数据库：
+
+```bash
+npm run backup:restore -- \
+  /var/lib/product-radar/backups/product-radar-2026-07-30.db \
+  /var/lib/product-radar/restored.db
+```
+
+确认恢复文件后，把 `DATABASE_PATH` 指向它并重启服务。
 
 ## 安全与数据
 
 - API 密钥只在服务端读取；
+- 生产环境使用签名 HttpOnly 会话、SameSite Cookie、Origin 与 CSRF 双重校验；
+- 登录、普通请求和付费调研分别限流；
+- 每日 AI 与 DataForSEO 预算保存在 SQLite，不会因重启清空；
 - `.env` 不会提交到 Git；
 - SQLite 数据库默认不会提交；
 - 导入的社交数据不需要保存用户身份信息；
 - 页面不会直接渲染未经处理的 HTML；
-- 公开部署时必须保护 `/api/opportunities/:id/research`，否则他人可能消耗你的 AI 与数据 API 余额；
-- 建议为 AI Provider API Key 设置月度预算；
-- 建议每日备份 SQLite。
+- 外部证据在 Prompt 中明确作为不可信数据处理；
+- AI 关键结论保存证据引用、模型版本、Prompt 版本和 token 用量；
+- 建议同时在 AI Provider 后台设置月度硬预算。
 
 ## 当前边界
 
 当前版本已经完整实现产品管理、信号管理、雷达库、调研判断、证据展示与版本化评分，但仍有这些限制：
 
-- DataForSEO 当前只接入 Google Ads 搜索量接口；
-- 搜索位置和语言当前固定为美国与英语；
 - DataForSEO Trends 尚未单独接入；
-- Apple App Data 尚未接入；
+- Apple 数据当前以关键词竞品、评分与评论量为主，尚未自动抓取每个竞品的完整评论主题；
 - Reddit 与 X 自动采集尚未实现；
-- 暂无自动每日更新任务；
-- 暂无多用户账号系统；
+- 当前是单用户登录，不是多租户 SaaS；
 - SQLite 适合个人或小团队单实例使用，不适合多个写入节点。
+- 当前生产启动仍依赖 `tsx`；纯 Node 编译产物与 Docker 部署尚未实现。
 
 这些边界不会影响 Demo 流程或手工导入数据，但会影响自动化和真实市场覆盖范围。
 
 ## 路线图
 
-- [ ] 可配置国家、语言与市场；
+- [x] 可配置国家、语言与市场；
 - [ ] DataForSEO Trends；
-- [ ] Apple App Store 搜索、竞品、评分与评论；
+- [ ] Apple App Store 竞品完整差评主题；
 - [ ] 合规的 Reddit / X 数据连接器；
-- [ ] 每日自动采集与重新评分；
-- [ ] 调研任务队列与重试；
-- [ ] 单用户登录与 API 限流；
+- [x] 每日自动采集与重新评分；
+- [x] 持久化任务锁、重试与状态记录；
+- [x] 单用户登录、CSRF 与 API 限流；
+- [ ] 编译后的纯 Node 运行环境与 Docker 部署；
 - [ ] PostgreSQL 可选后端；
 - [ ] 数据导出；
 - [ ] 自定义评分权重；

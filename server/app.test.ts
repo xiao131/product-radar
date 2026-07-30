@@ -1,23 +1,10 @@
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
-import type { AppConfig } from "./config.js";
 import { createDatabase, type RadarDatabase } from "./db.js";
+import { createTestConfig } from "./test-config.js";
 
-const config: AppConfig = {
-  port: 0,
-  databasePath: ":memory:",
-  researchProvider: "demo",
-  aiProvider: "gateway",
-  aiModel: "openai/gpt-5.6-terra",
-  openAiBaseUrl: "https://api.openai.com/v1",
-  aiReasoningEffort: "xhigh",
-  aiDisableResponseStorage: true,
-  researchFreshnessDays: 7,
-  researchRateLimitPerHour: 30,
-  dataForSeoBatchPollIntervalMs: 1,
-  dataForSeoBatchTimeoutMs: 100,
-};
+const config = createTestConfig();
 
 describe("Product Radar API", () => {
   let database: RadarDatabase;
@@ -96,7 +83,7 @@ describe("Product Radar API", () => {
     expect(firstReport.body.version).toBe(1);
     expect(firstReport.body.cached).toBe(false);
     expect(firstReport.body.dimensionScores).toHaveLength(9);
-    expect(firstReport.body.evidenceIds).toHaveLength(4);
+    expect(firstReport.body.evidenceIds).toHaveLength(5);
 
     const cachedReport = await request(app)
       .post(`/api/opportunities/${opportunityResponse.body.id}/research`)
@@ -115,7 +102,7 @@ describe("Product Radar API", () => {
       .get(`/api/opportunities/${opportunityResponse.body.id}`)
       .expect(200);
     expect(detail.body.reports).toHaveLength(2);
-    expect(detail.body.evidence).toHaveLength(8);
+    expect(detail.body.evidence).toHaveLength(9);
     expect(detail.body.opportunity.researchStatus).toBe("READY");
   });
 
@@ -198,5 +185,38 @@ describe("Product Radar API", () => {
       .post("/api/signals/import")
       .send({ csv: "title,source_type\nMissing content,IDEA" })
       .expect(400);
+  });
+
+  it("links a raw signal to an existing opportunity as complaint evidence", async () => {
+    const opportunity = (
+      await request(app).get("/api/opportunities").expect(200)
+    ).body.items[0];
+    const signal = await request(app)
+      .post("/api/signals")
+      .send({
+        sourceType: "APP_REVIEW",
+        title: "Export flow complaint",
+        content: "The export loses all useful formatting and takes six manual steps.",
+        sourceUrl: "https://example.com/review/1",
+        tags: ["export"],
+      })
+      .expect(201);
+
+    await request(app)
+      .post(`/api/signals/${signal.body.id}/link`)
+      .send({ opportunityId: opportunity.id })
+      .expect(200);
+
+    const detail = await request(app)
+      .get(`/api/opportunities/${opportunity.id}`)
+      .expect(200);
+    expect(detail.body.opportunity.researchStatus).toBe("UNRESEARCHED");
+    expect(
+      detail.body.evidence.some(
+        (item: { metric: string; rawExcerpt: string }) =>
+          item.metric === "qualified_complaint" &&
+          item.rawExcerpt.includes("six manual steps"),
+      ),
+    ).toBe(true);
   });
 });

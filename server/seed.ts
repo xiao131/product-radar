@@ -2,7 +2,10 @@ import { loadConfig } from "./config.js";
 import { createDatabase } from "./db.js";
 
 const config = loadConfig();
-const database = createDatabase(config.databasePath, true);
+const database = createDatabase(config.databasePath, {
+  seedDemoData: true,
+  busyTimeoutMs: config.databaseBusyTimeoutMs,
+});
 const opportunityCount = (
   database.prepare("SELECT COUNT(*) AS count FROM opportunities").get() as {
     count: number;

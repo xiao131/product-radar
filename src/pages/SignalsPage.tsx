@@ -1,6 +1,10 @@
-import { ArrowRight, FileUp, Inbox, Plus } from "lucide-react";
+import { ArrowRight, FileUp, Inbox, Link2, Plus } from "lucide-react";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
-import type { Opportunity, Signal } from "../../shared/types";
+import type {
+  Opportunity,
+  OpportunityOption,
+  Signal,
+} from "../../shared/types";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, Modal } from "../components";
 import { SignalForm } from "../forms";
@@ -14,6 +18,12 @@ export function SignalsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [processing, setProcessing] = useState("");
   const [importing, setImporting] = useState(false);
+  const [linkingSignal, setLinkingSignal] = useState<Signal | null>(null);
+  const [opportunityOptions, setOpportunityOptions] = useState<
+    OpportunityOption[]
+  >([]);
+  const [linkTarget, setLinkTarget] = useState("");
+  const [linking, setLinking] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -37,6 +47,42 @@ export function SignalsPage() {
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "处理失败");
       setProcessing("");
+    }
+  }
+
+  async function openLinking(signal: Signal) {
+    setLinkingSignal(signal);
+    setLinkTarget("");
+    setActionError("");
+    try {
+      const options = await api<OpportunityOption[]>(
+        "/api/opportunities/options?limit=100",
+      );
+      setOpportunityOptions(options);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "候选读取失败");
+    }
+  }
+
+  async function linkToOpportunity() {
+    if (!linkingSignal || !linkTarget) return;
+    setLinking(true);
+    setActionError("");
+    try {
+      const opportunity = await api<Opportunity>(
+        `/api/signals/${linkingSignal.id}/link`,
+        {
+          method: "POST",
+          body: JSON.stringify({ opportunityId: linkTarget }),
+        },
+      );
+      setLinkingSignal(null);
+      load();
+      navigate(`/radar/${opportunity.id}`);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "关联失败");
+    } finally {
+      setLinking(false);
     }
   }
 
@@ -125,13 +171,21 @@ export function SignalsPage() {
                     查看候选 <ArrowRight size={14} />
                   </button>
                 ) : (
-                  <button
-                    className="button button--ink button--small"
-                    disabled={processing === signal.id}
-                    onClick={() => processSignal(signal)}
-                  >
-                    {processing === signal.id ? "处理中…" : "转为候选"} <ArrowRight size={14} />
-                  </button>
+                  <div className="signal-card__button-stack">
+                    <button
+                      className="button button--secondary button--small"
+                      onClick={() => openLinking(signal)}
+                    >
+                      <Link2 size={14} /> 加入已有候选
+                    </button>
+                    <button
+                      className="button button--ink button--small"
+                      disabled={processing === signal.id}
+                      onClick={() => processSignal(signal)}
+                    >
+                      {processing === signal.id ? "处理中…" : "转为新候选"} <ArrowRight size={14} />
+                    </button>
+                  </div>
                 )}
               </div>
             </article>
@@ -158,6 +212,44 @@ export function SignalsPage() {
             setModalOpen(false);
           }}
         />
+      </Modal>
+      <Modal
+        title="把信号加入已有候选"
+        subtitle={linkingSignal ? `“${linkingSignal.title}”将成为候选的用户痛点证据，并触发重新调研。` : ""}
+        open={Boolean(linkingSignal)}
+        onClose={() => setLinkingSignal(null)}
+      >
+        <div className="link-signal-form">
+          <label>
+            选择候选产品
+            <select
+              value={linkTarget}
+              onChange={(event) => setLinkTarget(event.target.value)}
+            >
+              <option value="">请选择…</option>
+              {opportunityOptions.map((option) => (
+                <option value={option.id} key={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="form-actions">
+            <button
+              className="button button--secondary"
+              onClick={() => setLinkingSignal(null)}
+            >
+              取消
+            </button>
+            <button
+              className="button button--primary"
+              disabled={!linkTarget || linking}
+              onClick={linkToOpportunity}
+            >
+              {linking ? "关联中…" : "加入并标记待调研"}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

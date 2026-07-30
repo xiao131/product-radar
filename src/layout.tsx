@@ -3,9 +3,11 @@ import {
   Database,
   Inbox,
   LayoutDashboard,
+  LogOut,
   Menu,
   Plus,
   Radar,
+  Settings2,
   X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -25,6 +27,7 @@ const navigation = [
   { to: "/radar", label: "雷达库", icon: Radar },
   { to: "/products", label: "产品库", icon: Boxes },
   { to: "/signals", label: "信号收件箱", icon: Inbox },
+  { to: "/operations", label: "系统状态", icon: Settings2 },
 ];
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
@@ -32,14 +35,19 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   "/radar": { title: "产品雷达库", subtitle: "完整保存每个候选、证据、评分与判断变化。" },
   "/products": { title: "已上线与在建产品", subtitle: "让推荐考虑你已经拥有的产品资产。" },
   "/signals": { title: "信号收件箱", subtitle: "把点子、抱怨与评论变成可调研的候选产品。" },
+  "/operations": { title: "生产运行状态", subtitle: "检查数据源、预算、任务、备份与证据新鲜度。" },
 };
 
 export function AppLayout({
   children,
   onQuickAdd,
+  onLogout,
+  authRequired,
 }: {
   children: ReactNode;
   onQuickAdd: () => void;
+  onLogout: () => void;
+  authRequired: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -107,6 +115,12 @@ export function AppLayout({
           </p>
           <i className={settings?.researchMode === "REAL" ? "status-dot status-dot--live" : "status-dot"} />
         </div>
+        {authRequired && (
+          <button className="sidebar-logout" onClick={onLogout}>
+            <LogOut size={15} />
+            退出安全会话
+          </button>
+        )}
       </aside>
 
       {menuOpen && <div className="sidebar-scrim" onClick={() => setMenuOpen(false)} />}
