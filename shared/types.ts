@@ -317,3 +317,57 @@ export interface OperationsStatus {
     finishedAt: string | null;
   } | null;
 }
+
+export interface RuntimeSettings {
+  researchMode: "DEMO" | "REAL";
+  aiProvider: "gateway" | "openai" | "anthropic";
+  aiModel: string;
+  aiBaseUrl: string;
+  aiConfigured: boolean;
+  aiKeyConfigured: boolean;
+  searchConfigured: boolean;
+  aiRequestTimeoutSeconds: number;
+  providerMaxRetries: number;
+  discoveryAiSignalLimit: number;
+  discoveryAiMaxBatchesPerRun: number;
+  autoDiscoveryEnabled: boolean;
+  discoveryMaxCandidatesPerRun: number;
+  schedulerDiscoveryHour: number;
+  schedulerResearchHour: number;
+  schedulerBackupHour: number;
+  markets: Array<{
+    countryCode: string;
+    languageCode: string;
+    enabled: boolean;
+  }>;
+  maxDataForSeoCostPerDayUsd: number;
+  maxDataForSeoDiscoveryCostPerDayUsd: number;
+  maxDataForSeoCostPerMonthUsd: number;
+  researchKeywordCacheDays: number;
+  researchSerpCacheDays: number;
+  researchAppCacheDays: number;
+  discoveryLabsFreshnessDays: number;
+  discoverySerpFreshnessDays: number;
+  discoveryAppFreshnessDays: number;
+}
+
+export interface RuntimeSettingsUpdate
+  extends Omit<
+    RuntimeSettings,
+    | "researchMode"
+    | "aiConfigured"
+    | "aiKeyConfigured"
+    | "searchConfigured"
+    | "markets"
+  > {
+  aiApiKey?: string;
+  enabledMarketCodes: string[];
+}
+
+export interface AiConnectionTestResult {
+  ok: true;
+  provider: RuntimeSettings["aiProvider"];
+  model: string;
+  elapsedMs: number;
+  message: string;
+}

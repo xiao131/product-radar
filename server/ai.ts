@@ -3,12 +3,12 @@ import {
   createOpenAI,
   type OpenAILanguageModelResponsesOptions,
 } from "@ai-sdk/openai";
-import { gateway, type LanguageModel } from "ai";
+import { createGateway, type LanguageModel } from "ai";
 import type { AppConfig } from "./config.js";
 
 export function createResearchAiModel(config: AppConfig): LanguageModel {
   if (config.aiProvider === "gateway") {
-    return gateway(config.aiModel);
+    return createGateway({ apiKey: config.aiGatewayApiKey })(config.aiModel);
   }
 
   if (config.aiProvider === "anthropic") {

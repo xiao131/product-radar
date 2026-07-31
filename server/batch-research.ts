@@ -1,12 +1,14 @@
 import { loadConfig } from "./config.js";
 import { createDatabase } from "./db.js";
 import { recoverStaleJobs, runResearchJob } from "./jobs.js";
+import { applyStoredRuntimeSettings } from "./runtime-settings.js";
 
 const config = loadConfig();
 const database = createDatabase(config.databasePath, {
   seedDemoData: config.seedDemoData,
   busyTimeoutMs: config.databaseBusyTimeoutMs,
 });
+applyStoredRuntimeSettings(database, config);
 recoverStaleJobs(database);
 
 try {

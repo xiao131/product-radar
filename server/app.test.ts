@@ -318,6 +318,55 @@ describe("Product Radar API", () => {
     });
   });
 
+  it("saves runtime settings without exposing the API key", async () => {
+    const runtimeConfig = createTestConfig({
+      sessionSecret: "a-secure-test-session-secret-with-32-chars",
+      availableResearchMarkets: [
+        { countryCode: "US", locationCode: 2840, keywordLanguageCode: "en", searchLanguageCode: "en" },
+        { countryCode: "CN", locationCode: 2156, keywordLanguageCode: "zh_CN", searchLanguageCode: "zh-CN" },
+      ],
+    });
+    app = createApp(database, runtimeConfig);
+    const current = await request(app).get("/api/settings").expect(200);
+    const saved = await request(app)
+      .patch("/api/settings")
+      .send({
+        aiProvider: "anthropic",
+        aiModel: "claude-opus-5",
+        aiBaseUrl: "https://relay.example",
+        aiApiKey: "test-secret-key",
+        aiRequestTimeoutSeconds: 600,
+        providerMaxRetries: 1,
+        discoveryAiSignalLimit: 60,
+        discoveryAiMaxBatchesPerRun: 5,
+        autoDiscoveryEnabled: true,
+        discoveryMaxCandidatesPerRun: 5,
+        schedulerDiscoveryHour: 4,
+        schedulerResearchHour: 5,
+        schedulerBackupHour: 2,
+        enabledMarketCodes: ["US", "CN"],
+        maxDataForSeoCostPerDayUsd: 0.5,
+        maxDataForSeoDiscoveryCostPerDayUsd: 0.05,
+        maxDataForSeoCostPerMonthUsd: 10,
+        researchKeywordCacheDays: 30,
+        researchSerpCacheDays: 14,
+        researchAppCacheDays: 30,
+        discoveryLabsFreshnessDays: 30,
+        discoverySerpFreshnessDays: 3,
+        discoveryAppFreshnessDays: 1,
+      })
+      .expect(200);
+    expect(current.body.aiRequestTimeoutSeconds).toBe(1);
+    expect(saved.body).toMatchObject({
+      aiProvider: "anthropic",
+      aiModel: "claude-opus-5",
+      aiBaseUrl: "https://relay.example/v1",
+      aiKeyConfigured: true,
+      aiRequestTimeoutSeconds: 600,
+    });
+    expect(JSON.stringify(saved.body)).not.toContain("test-secret-key");
+  });
+
   it("links a raw signal to an existing opportunity as complaint evidence", async () => {
     const opportunity = (
       await request(app).get("/api/opportunities").expect(200)

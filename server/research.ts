@@ -360,7 +360,7 @@ ${JSON.stringify(evidenceSnapshot)}
     model,
     providerOptions,
     maxRetries: config.providerMaxRetries,
-    abortSignal: AbortSignal.timeout(config.providerRequestTimeoutMs),
+    abortSignal: AbortSignal.timeout(config.aiRequestTimeoutMs),
   });
 
   const researcher = await generateText({

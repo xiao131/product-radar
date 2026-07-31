@@ -8,7 +8,9 @@ import {
   persistDiscoveredSignals,
   persistDiscoveryCandidates,
   refreshChangedLinkedSignalEvidence,
+  selectSignalsForAi,
 } from "./discovery.js";
+import type { Signal } from "../shared/types.js";
 import type { DiscoveredSignalInput } from "./discovery-provider.js";
 
 const inputs: DiscoveredSignalInput[] = [
@@ -37,6 +39,31 @@ const inputs: DiscoveredSignalInput[] = [
 ];
 
 describe("automatic discovery persistence", () => {
+  it("keeps batches small while reserving reviewed context", () => {
+    const signal = (index: number, reviewed: boolean): Signal => ({
+      id: crypto.randomUUID(),
+      sourceType: "SEARCH",
+      title: `Signal ${index}`,
+      content: `Evidence ${index}`,
+      sourceUrl: null,
+      tags: [],
+      status: "NEW",
+      opportunityId: null,
+      aiReviewedAt: reviewed ? new Date().toISOString() : null,
+      aiReviewCount: reviewed ? 1 : 0,
+      createdAt: new Date(2026, 0, 1, 0, index).toISOString(),
+      updatedAt: new Date(2026, 0, 1, 0, index).toISOString(),
+    });
+    const signals = [
+      ...Array.from({ length: 20 }, (_, index) => signal(index, false)),
+      ...Array.from({ length: 10 }, (_, index) => signal(index + 20, true)),
+    ];
+    const result = selectSignalsForAi(signals, 20);
+    expect(result.selected).toHaveLength(20);
+    expect(result.selected.filter((item) => !item.aiReviewedAt)).toHaveLength(16);
+    expect(result.selected.filter((item) => item.aiReviewedAt)).toHaveLength(4);
+  });
+
   it("deduplicates signals and refreshes a stable opportunity", () => {
     const database = createDatabase(":memory:", false);
     const firstSignals = persistDiscoveredSignals(database, "run-1", inputs);

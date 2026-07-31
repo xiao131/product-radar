@@ -29,6 +29,9 @@ export function jobStatusLabel(value: string) {
 }
 
 export function jobErrorLabel(value: string) {
+  if (!value.trim() || value.trim() === "<none>" || value.includes("AI_APICallError: <none>")) {
+    return "AI 中转在生成过程中断开，未返回可读错误；请减小每批信号数后重试";
+  }
   if (value.includes("Billing service temporarily unavailable")) {
     return "AI 中转计费服务暂时不可用，重试后仍然失败";
   }

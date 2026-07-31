@@ -268,6 +268,9 @@ Demo。
 
 付费采集与 AI 聚类是两个可恢复阶段：数据入库后立即记录 `COLLECTED`；如果 AI
 中转超时或失败，当天手工重试只会复用已购买的数据，不会再次调用 DataForSEO。
+AI 归并默认每批 60 条、单次任务最多滚动 5 批，并在后续批次保留少量跨批上下文。
+因此减小单批大小主要提升中转稳定性，不会把剩余信号永久漏掉。AI 生成最长等待
+默认 10 分钟，并与 DataForSEO 网络请求超时完全分离。
 调度器无论成功或失败，每天最多自动尝试一次发现任务。自动发现另有默认
 `$0.05/天` 专项硬上限，同时受全部 DataForSEO `$0.50/天`、`$10/月` 上限保护。
 每次请求发送前先预留预计费用，响应后再以 DataForSEO 报告的实际费用结算。
@@ -334,6 +337,7 @@ npm run research:batch
 | `AI_MODEL` | 按 Provider 选择 | 否 | `openai` 默认 `gpt-5.6-terra`；`anthropic` 默认 `claude-sonnet-4-5`；`gateway` 默认 `openai/gpt-5.6-terra` |
 | `AI_REASONING_EFFORT` | `xhigh` | 否 | Responses 推理强度：`none`/`low`/`medium`/`high`/`xhigh`/`max` |
 | `AI_DISABLE_RESPONSE_STORAGE` | `true` | 否 | 为 `true` 时向 Responses API 发送 `store=false` |
+| `AI_REQUEST_TIMEOUT_MS` | `600000` | 否 | 单次 AI 生成最长等待时间；独立于数据供应商请求超时 |
 | `AUTO_DISCOVERY_ENABLED` | 真实模式为 `true` | 否 | 启用互联网/API 自动发现候选 |
 | `DISCOVERY_LABS_LIMIT` | `100` | 否 | 单个支持市场每次 Labs 候选关键词上限 |
 | `DISCOVERY_LABS_FRESHNESS_DAYS` | `30` | 否 | Labs 发现数据每市场最短重购间隔 |
@@ -341,8 +345,9 @@ npm run research:batch
 | `DISCOVERY_SERP_FRESHNESS_DAYS` | `3` | 否 | 痛点 SERP 每市场最短重购间隔 |
 | `DISCOVERY_APP_FRESHNESS_DAYS` | `1` | 否 | App Store 新品每市场最短重购间隔 |
 | `DISCOVERY_APP_DEPTH` | `100` | 否 | 每市场 App Store 新品扫描深度；设为 `0` 可关闭 |
-| `DISCOVERY_MAX_CANDIDATES_PER_RUN` | `5` | 否 | 每次最多由 AI 新增或更新的候选数 |
-| `DISCOVERY_AI_SIGNAL_LIMIT` | `120` | 否 | 每次交给 AI 聚类的高优先级信号数 |
+| `DISCOVERY_MAX_CANDIDATES_PER_RUN` | `5` | 否 | 每个 AI 批次最多新增或更新的候选数 |
+| `DISCOVERY_AI_SIGNAL_LIMIT` | `60` | 否 | 每个 AI 归并批次的信号数；后续批次会保留少量上下文 |
+| `DISCOVERY_AI_MAX_BATCHES_PER_RUN` | `5` | 否 | 单次自动发现最多滚动执行的 AI 归并批数 |
 | `SCHEDULER_ENABLED` | 生产为 `true` | 否 | 启用自动发现、调研和备份 |
 | `SCHEDULER_DISCOVERY_HOUR` | `3` | 否 | 服务器本地时区的每日候选发现小时 |
 | `SCHEDULER_RESEARCH_HOUR` | `3` | 否 | 服务器本地时区的每日调研小时 |
@@ -356,6 +361,12 @@ npm run research:batch
 | `DATAFORSEO_BATCH_TIMEOUT_MS` | `14400000` | 否 | Standard Queue 最长等待时间（默认 4 小时） |
 
 不要把 `.env` 提交到 Git。项目已在 `.gitignore` 中排除 `.env` 和本地数据库。
+
+登录后可进入“设置”直接调整 AI 提供商、模型、Base URL、10 分钟生成超时、
+归并批次、市场、定时时刻、DataForSEO 美元上限和缓存周期。API Key 采用
+`SESSION_SECRET` 派生密钥进行 AES-256-GCM 加密，页面永远不会读回明文。运行中的
+任务使用启动时的配置快照，保存内容从下一次任务开始生效。服务器监听、登录、
+数据库路径、代理和备份目录等基础设施配置仍由环境变量管理。
 
 ## 使用方法
 

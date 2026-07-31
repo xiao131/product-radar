@@ -8,6 +8,7 @@ import {
   Plus,
   Radar,
   Settings2,
+  Activity,
   X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -30,7 +31,8 @@ const primaryNavigation = [
 
 const systemNavigation = [
   { to: "/signals", label: "原始证据", icon: Inbox },
-  { to: "/operations", label: "运行状态", icon: Settings2 },
+  { to: "/operations", label: "运行状态", icon: Activity },
+  { to: "/settings", label: "设置", icon: Settings2 },
 ];
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
@@ -39,6 +41,7 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   "/products": { title: "我的产品", subtitle: "查看已上线与在建产品，让推荐避开重复建设。" },
   "/signals": { title: "原始证据库", subtitle: "系统自动归并并保留可追溯来源；无需逐条处理。" },
   "/operations": { title: "数据与运行状态", subtitle: "查看采集成本、任务、备份与证据新鲜度。" },
+  "/settings": { title: "设置", subtitle: "配置 AI、自动发现、市场、成本与数据缓存。" },
 };
 
 export function AppLayout({

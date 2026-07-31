@@ -6,12 +6,14 @@ import { loadConfig } from "./config.js";
 import { createDatabase } from "./db.js";
 import { recoverStaleJobs, waitForActiveJobs } from "./jobs.js";
 import { startScheduler } from "./scheduler.js";
+import { applyStoredRuntimeSettings } from "./runtime-settings.js";
 
 const config = loadConfig();
 const database = createDatabase(config.databasePath, {
   seedDemoData: config.seedDemoData,
   busyTimeoutMs: config.databaseBusyTimeoutMs,
 });
+applyStoredRuntimeSettings(database, config);
 recoverStaleJobs(database);
 const app = createApp(database, config);
 const scheduler = startScheduler(database, config);

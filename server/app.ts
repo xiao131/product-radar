@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
+import { generateText } from "ai";
 import { z } from "zod";
+import {
+  createResearchAiModel,
+  createResearchAiProviderOptions,
+} from "./ai.js";
 import { isAiConfigured, type AppConfig } from "./config.js";
 import { parseSignalCsv } from "./csv.js";
 import type { RadarDatabase } from "./db.js";
@@ -22,6 +27,13 @@ import { latestSchemaVersion } from "./migrations.js";
 import { estimateResearchCost } from "./providers.js";
 import { createSecurity, fixedWindowRateLimiter } from "./security.js";
 import { linkSignalEvidence } from "./signal-evidence.js";
+import { readableAiError } from "./errors.js";
+import {
+  previewRuntimeSettings,
+  runtimeSettingsResponse,
+  runtimeSettingsUpdateSchema,
+  saveRuntimeSettings,
+} from "./runtime-settings.js";
 import {
   JobAlreadyRunningError,
   runResearchJob,
@@ -371,9 +383,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
 
   app.get("/api/settings", (_request, response) => {
     response.json({
+      ...runtimeSettingsResponse(config),
       researchMode: config.researchProvider === "real" ? "REAL" : "DEMO",
-      aiProvider: config.aiProvider,
-      aiModel: config.aiModel,
       aiConfigured: isAiConfigured(config),
       aiReasoningEffort: config.aiReasoningEffort,
       aiResponseStorageDisabled: config.aiDisableResponseStorage,
@@ -393,17 +404,66 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         languageCode: config.marketLanguageCode,
         countryCode: config.marketCountryCode,
       },
-      markets: config.researchMarkets.map((market) => ({
-        locationCode: market.locationCode,
-        languageCode: market.searchLanguageCode,
-        countryCode: market.countryCode,
-      })),
       sources: {
         webCompetitors: config.collectWebCompetitors,
         appleMarket: config.collectAppleMarket,
       },
     });
   });
+
+  app.patch("/api/settings", (request, response, next) => {
+    try {
+      const input = runtimeSettingsUpdateSchema.parse(request.body);
+      saveRuntimeSettings(db, config, input);
+      response.json({
+        ...runtimeSettingsResponse(config),
+        researchMode: config.researchProvider === "real" ? "REAL" : "DEMO",
+        aiConfigured: isAiConfigured(config),
+        searchConfigured: Boolean(
+          config.dataForSeoLogin && config.dataForSeoPassword,
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post(
+    "/api/settings/test-ai",
+    researchRateLimiter,
+    async (request, response, next) => {
+      try {
+        const input = runtimeSettingsUpdateSchema.parse(request.body);
+        const { preview } = previewRuntimeSettings(config, input);
+        if (!isAiConfigured(preview)) {
+          response.status(400).json({ error: "请先填写当前 AI 提供商的 API Key" });
+          return;
+        }
+        const startedAt = Date.now();
+        try {
+          const result = await generateText({
+            model: createResearchAiModel(preview),
+            providerOptions: createResearchAiProviderOptions(preview),
+            prompt: "只回复：连接正常",
+            maxOutputTokens: 32,
+            maxRetries: 0,
+            abortSignal: AbortSignal.timeout(preview.aiRequestTimeoutMs),
+          });
+          response.json({
+            ok: true,
+            provider: preview.aiProvider,
+            model: preview.aiModel,
+            elapsedMs: Date.now() - startedAt,
+            message: result.text.trim() || "连接正常",
+          });
+        } catch (error) {
+          response.status(502).json({ error: readableAiError(error) });
+        }
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   app.get("/api/dashboard", (_request, response) => {
     const scalar = (sql: string) =>

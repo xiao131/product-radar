@@ -36,11 +36,13 @@ export interface AppConfig {
   anthropicBaseUrl: string;
   aiReasoningEffort: AiReasoningEffort;
   aiDisableResponseStorage: boolean;
+  aiRequestTimeoutMs: number;
   dataForSeoLogin?: string;
   dataForSeoPassword?: string;
   marketLocationCode: number;
   marketLanguageCode: string;
   marketCountryCode: string;
+  availableResearchMarkets: ResearchMarket[];
   researchMarkets: ResearchMarket[];
   collectWebCompetitors: boolean;
   collectAppleMarket: boolean;
@@ -69,6 +71,7 @@ export interface AppConfig {
   discoveryAppFreshnessDays: number;
   discoveryMaxCandidatesPerRun: number;
   discoveryAiSignalLimit: number;
+  discoveryAiMaxBatchesPerRun: number;
   authRequired: boolean;
   adminPasswordHash?: string;
   sessionSecret?: string;
@@ -311,11 +314,16 @@ export function loadConfig(): AppConfig {
       process.env.AI_DISABLE_RESPONSE_STORAGE,
       true,
     ),
+    aiRequestTimeoutMs: positiveNumber(
+      process.env.AI_REQUEST_TIMEOUT_MS,
+      10 * 60 * 1_000,
+    ),
     dataForSeoLogin: process.env.DATAFORSEO_LOGIN,
     dataForSeoPassword: process.env.DATAFORSEO_PASSWORD,
     marketLocationCode,
     marketLanguageCode,
     marketCountryCode,
+    availableResearchMarkets: researchMarkets.map((market) => ({ ...market })),
     researchMarkets,
     collectWebCompetitors: booleanValue(
       process.env.COLLECT_WEB_COMPETITORS,
@@ -424,9 +432,15 @@ export function loadConfig(): AppConfig {
     ),
     discoveryAiSignalLimit: integerInRange(
       process.env.DISCOVERY_AI_SIGNAL_LIMIT,
-      120,
+      60,
       20,
       300,
+    ),
+    discoveryAiMaxBatchesPerRun: integerInRange(
+      process.env.DISCOVERY_AI_MAX_BATCHES_PER_RUN,
+      5,
+      1,
+      20,
     ),
     authRequired,
     adminPasswordHash: process.env.ADMIN_PASSWORD_HASH,

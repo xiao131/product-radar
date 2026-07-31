@@ -19,9 +19,18 @@ export function createTestConfig(
     anthropicBaseUrl: "https://api.anthropic.com/v1",
     aiReasoningEffort: "xhigh",
     aiDisableResponseStorage: true,
+    aiRequestTimeoutMs: 1_000,
     marketLocationCode: 2840,
     marketLanguageCode: "en",
     marketCountryCode: "US",
+    availableResearchMarkets: [
+      {
+        countryCode: "US",
+        locationCode: 2840,
+        keywordLanguageCode: "en",
+        searchLanguageCode: "en",
+      },
+    ],
     researchMarkets: [
       {
         countryCode: "US",
@@ -57,6 +66,7 @@ export function createTestConfig(
     discoveryAppFreshnessDays: 1,
     discoveryMaxCandidatesPerRun: 5,
     discoveryAiSignalLimit: 120,
+    discoveryAiMaxBatchesPerRun: 5,
     authRequired: false,
     sessionTtlHours: 24,
     schedulerEnabled: false,

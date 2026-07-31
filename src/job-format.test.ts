@@ -25,5 +25,8 @@ describe("job history labels", () => {
     expect(jobErrorLabel("The operation was aborted due to timeout")).toBe(
       "AI 请求超时，尚未完成归并",
     );
+    expect(jobErrorLabel("<none>")).toBe(
+      "AI 中转在生成过程中断开，未返回可读错误；请减小每批信号数后重试",
+    );
   });
 });

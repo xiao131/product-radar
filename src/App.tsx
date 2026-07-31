@@ -9,6 +9,7 @@ import { OperationsPage } from "./pages/OperationsPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { RadarPage } from "./pages/RadarPage";
 import { SignalsPage } from "./pages/SignalsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { useNavigate, usePath } from "./router";
 import { api } from "./api";
 
@@ -27,7 +28,8 @@ function RoutedPage() {
     path.startsWith("/radar/") ||
     path === "/products" ||
     path === "/signals" ||
-    path === "/operations";
+    path === "/operations" ||
+    path === "/settings";
 
   useEffect(() => {
     if (!knownPath) navigate("/", { replace: true });
@@ -38,6 +40,7 @@ function RoutedPage() {
   if (path === "/products") return <ProductsPage />;
   if (path === "/signals") return <SignalsPage />;
   if (path === "/operations") return <OperationsPage />;
+  if (path === "/settings") return <SettingsPage />;
   return <DashboardPage />;
 }
 

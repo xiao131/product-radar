@@ -5,11 +5,22 @@ import { runAutomaticDiscovery } from "./discovery.js";
 import { logEvent } from "./logger.js";
 import { researchDueOpportunities } from "./research.js";
 import { createVerifiedBackup } from "./backup.js";
+import { readableAiError } from "./errors.js";
 
 export class JobAlreadyRunningError extends Error {}
 
 type JobTrigger = "manual" | "scheduled" | "cli";
 const activeJobs = new WeakMap<RadarDatabase, Set<Promise<unknown>>>();
+
+function snapshotConfig(config: AppConfig): AppConfig {
+  return {
+    ...config,
+    availableResearchMarkets: config.availableResearchMarkets.map((market) => ({
+      ...market,
+    })),
+    researchMarkets: config.researchMarkets.map((market) => ({ ...market })),
+  };
+}
 
 function now() {
   return new Date().toISOString();
@@ -117,7 +128,12 @@ function startJob<T>(
       logEvent("info", "job_completed", { jobId, jobType, finishedAt });
       return { jobId, status: "COMPLETED" as const, result };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "未知任务错误";
+      const message =
+        jobType === "DISCOVERY" || jobType === "RESEARCH"
+          ? readableAiError(error)
+          : error instanceof Error
+            ? error.message
+            : "未知任务错误";
       const finishedAt = now();
       db.prepare(
         `UPDATE job_runs
@@ -213,19 +229,20 @@ export function startResearchJob(
   delivery: "live" | "standard",
   forceOpportunityIds: string[] = [],
 ) {
+  const taskConfig = snapshotConfig(config);
   return startJob(
     db,
-    config,
+    taskConfig,
     "RESEARCH",
     trigger,
     Math.max(
-      config.dataForSeoBatchTimeoutMs + 60 * 60 * 1_000,
+      taskConfig.dataForSeoBatchTimeoutMs + 60 * 60 * 1_000,
       48 * 60 * 60 * 1_000,
     ),
     () =>
       researchDueOpportunities(
         db,
-        config,
+        taskConfig,
         delivery,
         forceOpportunityIds,
       ),
@@ -245,16 +262,17 @@ export function startDiscoveryJob(
   config: AppConfig,
   trigger: JobTrigger,
 ) {
+  const taskConfig = snapshotConfig(config);
   return startJob(
     db,
-    config,
+    taskConfig,
     "DISCOVERY",
     trigger,
     Math.max(
-      config.dataForSeoBatchTimeoutMs + 60 * 60 * 1_000,
+      taskConfig.dataForSeoBatchTimeoutMs + 60 * 60 * 1_000,
       24 * 60 * 60 * 1_000,
     ),
-    (jobId) => runAutomaticDiscovery(db, config, jobId),
+    (jobId) => runAutomaticDiscovery(db, taskConfig, jobId),
   );
 }
 
@@ -290,7 +308,8 @@ export function startBackupJob(
   config: AppConfig,
   trigger: JobTrigger,
 ) {
-  return startJob(db, config, "BACKUP", trigger, 30 * 60 * 1_000, () =>
-    createVerifiedBackup(db, config),
+  const taskConfig = snapshotConfig(config);
+  return startJob(db, taskConfig, "BACKUP", trigger, 30 * 60 * 1_000, () =>
+    createVerifiedBackup(db, taskConfig),
   );
 }
