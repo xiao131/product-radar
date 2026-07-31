@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { createDatabase } from "./db.js";
 import {
   normalizeDiscoveryKey,
+  normalizeDiscoveryConfidence,
   discoveryCollectionForToday,
+  markSignalsAiReviewed,
   persistDiscoveredSignals,
   persistDiscoveryCandidates,
   refreshChangedLinkedSignalEvidence,
@@ -48,7 +50,7 @@ describe("automatic discovery persistence", () => {
       targetUser: "Freelancers who manually manage receipts",
       recommendedPlatform: "WEB_AND_IOS" as const,
       sourceSignalIds: firstSignals.signals.map((signal) => signal.id),
-      confidence: 78,
+      confidence: 0.78,
       whyNow: "Search growth and a concrete manual workflow agree.",
     };
     const firstCandidate = persistDiscoveryCandidates(
@@ -61,6 +63,30 @@ describe("automatic discovery persistence", () => {
       refreshed: 0,
       skipped: 0,
     });
+    expect(
+      database
+        .prepare("SELECT confidence FROM opportunities WHERE id = ?")
+        .get(firstCandidate.opportunityIds[0]),
+    ).toEqual({ confidence: 78 });
+
+    markSignalsAiReviewed(
+      database,
+      firstSignals.signals.map((signal) => signal.id),
+      "run-1",
+    );
+    const reviewed = database
+      .prepare(
+        `SELECT ai_reviewed_at, ai_review_count, last_ai_run_id
+         FROM signals WHERE id = ?`,
+      )
+      .get(firstSignals.signals[0].id) as {
+      ai_reviewed_at: string | null;
+      ai_review_count: number;
+      last_ai_run_id: string | null;
+    };
+    expect(reviewed.ai_reviewed_at).toBeTruthy();
+    expect(reviewed.ai_review_count).toBe(1);
+    expect(reviewed.last_ai_run_id).toBe("run-1");
 
     const secondSignals = persistDiscoveredSignals(database, "run-2", inputs);
     expect(secondSignals.inserted).toBe(0);
@@ -124,6 +150,8 @@ describe("automatic discovery persistence", () => {
     expect(normalizeDiscoveryKey(candidate.discoveryKey)).toBe(
       "freelancers-receipt-organization",
     );
+    expect(normalizeDiscoveryConfidence(0.82)).toBe(82);
+    expect(normalizeDiscoveryConfidence(82)).toBe(82);
     database.close();
   });
 
@@ -175,6 +203,26 @@ describe("automatic discovery persistence", () => {
       "DataForSEO Google SERP",
       "DataForSEO Community Search",
     ]);
+    markSignalsAiReviewed(database, [persisted.signals[0].id], "review-run");
+    persistDiscoveredSignals(database, "changed-run", [
+      {
+        ...inputs[1],
+        fingerprint: "complaint-copy-a",
+        content: "The same workflow now takes eight manual steps.",
+      },
+    ]);
+    expect(
+      database
+        .prepare(
+          `SELECT ai_reviewed_at, ai_review_count, last_ai_run_id
+           FROM signals WHERE id = ?`,
+        )
+        .get(persisted.signals[0].id),
+    ).toEqual({
+      ai_reviewed_at: null,
+      ai_review_count: 0,
+      last_ai_run_id: null,
+    });
     database.close();
   });
 

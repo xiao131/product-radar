@@ -85,6 +85,9 @@ export function mapSignal(row: Row): Signal {
     autoCollected: Boolean(row.auto_collected),
     canonicalKey: row.canonical_key ? String(row.canonical_key) : null,
     duplicateCount: Math.max(1, Number(row.duplicate_count ?? 1)),
+    aiReviewedAt: row.ai_reviewed_at ? String(row.ai_reviewed_at) : null,
+    aiReviewCount: Math.max(0, Number(row.ai_review_count ?? 0)),
+    lastAiRunId: row.last_ai_run_id ? String(row.last_ai_run_id) : null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };

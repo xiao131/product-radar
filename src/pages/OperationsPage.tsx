@@ -146,7 +146,17 @@ export function OperationsPage() {
         <div>
           <DatabaseZap size={18} />
           <span>
-            DataForSEO 全部 · 今日 $
+            DataForSEO · 今日计费提交 {status.usage.dataForSeo.billedRequests} 次
+          </span>
+          <strong>
+            子任务 {status.usage.dataForSeo.used}/
+            {status.usage.dataForSeo.limit}
+          </strong>
+        </div>
+        <div>
+          <DatabaseZap size={18} />
+          <span>
+            DataForSEO 费用 · 今日 $
             {status.usage.dataForSeo.reportedCostUsd.toFixed(3)}/$
             {status.usage.dataForSeo.dailyCostLimitUsd.toFixed(2)}
           </span>

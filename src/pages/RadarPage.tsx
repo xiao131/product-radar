@@ -77,12 +77,12 @@ export function RadarPage() {
     try {
       const result = await api<BatchResearchResult>("/api/research/batch", {
         method: "POST",
-        body: JSON.stringify({ delivery: "live" }),
+        body: JSON.stringify({ delivery: "standard" }),
       });
       setBatchMessage(
         result.requested === 0
           ? "所有候选数据都在新鲜期内，本次没有调用付费数据。"
-          : `已用 1 个批量任务检查 ${result.requested} 个候选：${result.researched} 个重新评分，${result.unchanged} 个数据无明显变化，${result.failed} 个失败。`,
+          : `已用低成本批量模式检查 ${result.requested} 个候选：${result.researched} 个重新评分，${result.unchanged} 个数据无明显变化，${result.failed} 个失败。`,
       );
       setRefreshVersion((value) => value + 1);
     } catch (caught) {

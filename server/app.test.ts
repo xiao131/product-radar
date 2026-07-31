@@ -122,12 +122,13 @@ describe("Product Radar API", () => {
 
     const batch = await request(app)
       .post("/api/research/batch")
-      .send({ delivery: "live" })
+      .send({ delivery: "standard" })
       .expect(200);
     expect(batch.body.requested).toBe(1);
     expect(batch.body.researched).toBe(1);
     expect(batch.body.unchanged).toBe(0);
     expect(batch.body.failed).toBe(0);
+    expect(batch.body.delivery).toBe("standard");
 
     const detail = await request(app)
       .get(`/api/opportunities/${opportunityResponse.body.id}`)
@@ -210,6 +211,7 @@ describe("Product Radar API", () => {
       discoveryHour: 3,
     });
     expect(response.body.usage.dataForSeo).toMatchObject({
+      billedRequests: 0,
       dailyCostLimitUsd: 0.5,
       monthlyCostLimitUsd: 10,
     });

@@ -23,7 +23,7 @@ export class UsageBudgetExceededError extends Error {
           ? `本月 DataForSEO 费用将超过 $${limit.toFixed(2)} 上限`
           : provider === "AI"
             ? `今日 AI 调研预算已达到 ${limit} 次`
-            : `今日 DataForSEO 任务预算已达到 ${limit} 个`,
+            : `今日 DataForSEO 计费子任务预算已达到 ${limit} 个`,
     );
   }
 }
@@ -214,6 +214,13 @@ export class UsageLedger {
            AND created_at >= ?`,
       )
       .get(startOfLocalDay()) as { cost_usd: number };
+    const dailyDataForSeoRequests = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM usage_events
+         WHERE provider = 'DATAFORSEO' AND created_at >= ?`,
+      )
+      .get(startOfLocalDay()) as { count: number };
     return {
       ai: {
         used: Number(ai?.units ?? 0),
@@ -224,6 +231,7 @@ export class UsageLedger {
       dataForSeo: {
         used: Number(dataForSeo?.units ?? 0),
         limit: this.config.maxDataForSeoTasksPerDay,
+        billedRequests: Number(dailyDataForSeoRequests.count ?? 0),
         reportedCostUsd: Number(dataForSeo?.cost_usd ?? 0),
         dailyCostLimitUsd: this.config.maxDataForSeoCostPerDayUsd,
         discoveryCostUsd: Number(

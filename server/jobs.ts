@@ -244,6 +244,25 @@ export function startDiscoveryJob(
   );
 }
 
+export function startDiscoveryPipeline(
+  db: RadarDatabase,
+  config: AppConfig,
+  trigger: JobTrigger,
+) {
+  const discovery = startDiscoveryJob(db, config, trigger);
+  const pipelineCompletion = discovery.completion.then(async (completed) => {
+    if (!completed.result.opportunityIds.length) {
+      return { discovery: completed, research: null };
+    }
+    const research = startResearchJob(db, config, trigger, "standard");
+    return {
+      discovery: completed,
+      research: await research.completion,
+    };
+  });
+  return { ...discovery, pipelineCompletion };
+}
+
 export function runBackupJob(
   db: RadarDatabase,
   config: AppConfig,

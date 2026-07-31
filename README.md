@@ -255,7 +255,9 @@ HTTP 请求。一个中英文完整发现批次预计约 `$0.036`。
 
 完整调研默认复用 7 天内的结果。详情页的“检查并更新”会优先命中缓存；只有确认
 “强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000
-个到期关键词合并为一个任务。每日 AI 和 DataForSEO 使用量由 SQLite 持久化，
+个到期候选放进低成本 Standard 批次；每个市场共享一批关键词，Web 和 App
+竞品任务仍按候选与市场计费。手工自动发现形成候选后，也会自动排队同样的
+Standard 批量调研。每日 AI 和 DataForSEO 使用量由 SQLite 持久化，
 服务重启不会清空。
 每日预算和定时小时都以服务器本地时区计算，部署时应明确设置服务器的
 `TZ`，例如 `Asia/Shanghai`。
@@ -287,7 +289,7 @@ npm run research:batch
 | `RESEARCH_FRESHNESS_DAYS` | `7` | 否 | 新鲜期内复用调研结果，避免重复付费 |
 | `RESEARCH_RATE_LIMIT_PER_HOUR` | `30` | 否 | 单个客户端每小时最多发起的调研请求 |
 | `MAX_AI_RUNS_PER_DAY` | `30` | 否 | 每日最多 AI 调研流水线次数 |
-| `MAX_DATAFORSEO_TASKS_PER_DAY` | `100` | 否 | 每日最多 DataForSEO 计费任务数 |
+| `MAX_DATAFORSEO_TASKS_PER_DAY` | `100` | 否 | 每日最多 DataForSEO 计费子任务数；一次批量 POST 可包含多个子任务 |
 | `MAX_DATAFORSEO_COST_PER_DAY_USD` | `0.5` | 否 | 每日 DataForSEO 美元硬上限，自动发现与调研共享 |
 | `MAX_DATAFORSEO_DISCOVERY_COST_PER_DAY_USD` | `0.05` | 否 | 自动发现的独立每日美元硬上限，请求发送前检查 |
 | `MAX_DATAFORSEO_COST_PER_MONTH_USD` | `10` | 否 | 每月 DataForSEO 美元硬上限 |
@@ -721,6 +723,7 @@ npm run backup:restore -- \
 - 生产环境使用签名 HttpOnly 会话、SameSite Cookie、Origin 与 CSRF 双重校验；
 - 登录、普通请求和付费调研分别限流；
 - 每日 AI 与 DataForSEO 预算保存在 SQLite，不会因重启清空；
+- 运行状态分别展示 DataForSEO 计费提交、计费子任务和美元费用；
 - `.env` 不会提交到 Git；
 - SQLite 数据库默认不会提交；
 - 导入的社交数据不需要保存用户身份信息；

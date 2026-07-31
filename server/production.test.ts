@@ -209,6 +209,7 @@ describe("production decision and budgets", () => {
       ),
     ).toThrow(UsageBudgetExceededError);
     expect(ledger.today().dataForSeo).toMatchObject({
+      billedRequests: 1,
       discoveryCostUsd: 0.036,
       discoveryCostLimitUsd: 0.05,
     });

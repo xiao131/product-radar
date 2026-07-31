@@ -24,7 +24,7 @@ import {
   JobAlreadyRunningError,
   runResearchJob,
   startBackupJob,
-  startDiscoveryJob,
+  startDiscoveryPipeline,
   startResearchJob,
 } from "./jobs.js";
 import { UsageBudgetExceededError, UsageLedger } from "./usage.js";
@@ -64,7 +64,7 @@ const researchRequestSchema = z.object({
 });
 
 const batchResearchRequestSchema = z.object({
-  delivery: z.enum(["live"]).default("live"),
+  delivery: z.enum(["standard", "live"]).default("standard"),
 });
 
 const opportunityOptionsQuerySchema = z.object({
@@ -665,8 +665,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     researchRateLimiter,
     async (_request, response, next) => {
       try {
-        const job = startDiscoveryJob(db, config, "manual");
-        void job.completion.catch(() => undefined);
+        const job = startDiscoveryPipeline(db, config, "manual");
+        void job.pipelineCompletion.catch(() => undefined);
         response.status(202).json({
           jobId: job.jobId,
           status: job.status,
@@ -682,7 +682,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     researchRateLimiter,
     async (_request, response, next) => {
       try {
-        const job = startResearchJob(db, config, "manual", "live");
+        const job = startResearchJob(db, config, "manual", "standard");
         void job.completion.catch(() => undefined);
         response.status(202).json({
           jobId: job.jobId,

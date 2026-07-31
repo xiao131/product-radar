@@ -197,6 +197,9 @@ export interface Signal {
   autoCollected?: boolean;
   canonicalKey?: string | null;
   duplicateCount?: number;
+  aiReviewedAt?: string | null;
+  aiReviewCount?: number;
+  lastAiRunId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -263,6 +266,7 @@ export interface OperationsStatus {
     dataForSeo: {
       used: number;
       limit: number;
+      billedRequests: number;
       reportedCostUsd: number;
       dailyCostLimitUsd: number;
       discoveryCostUsd: number;

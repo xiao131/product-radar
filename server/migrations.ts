@@ -240,6 +240,30 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: "AI signal review state and confidence scale",
+    up(db) {
+      db.exec(`
+        ALTER TABLE signals ADD COLUMN ai_reviewed_at TEXT;
+        ALTER TABLE signals ADD COLUMN ai_review_count INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE signals ADD COLUMN last_ai_run_id TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_signal_ai_review_queue
+          ON signals(auto_collected, opportunity_id, ai_review_count, updated_at DESC);
+
+        UPDATE opportunities
+        SET confidence = MIN(100, ROUND(confidence * 100))
+        WHERE auto_discovered = 1
+          AND confidence > 0
+          AND confidence <= 1
+          AND NOT EXISTS (
+            SELECT 1 FROM research_reports
+            WHERE research_reports.opportunity_id = opportunities.id
+          );
+      `);
+    },
+  },
 ];
 
 export function migrateDatabase(db: Database.Database) {

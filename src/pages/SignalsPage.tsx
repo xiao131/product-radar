@@ -197,7 +197,9 @@ export function SignalsPage() {
                       : signal.opportunityId
                         ? "已归并候选"
                         : signal.autoCollected
-                          ? "等待 AI 归并"
+                          ? signal.aiReviewedAt
+                            ? "AI 已筛选"
+                            : "等待 AI 筛选"
                           : "待判断"}
                   </span>
                 </div>
@@ -225,7 +227,9 @@ export function SignalsPage() {
                   </button>
                 ) : signal.autoCollected ? (
                   <span className="muted-copy">
-                    系统将在下一次 AI 判断时自动归并
+                    {signal.aiReviewedAt
+                      ? "AI 已筛选，本轮暂未形成候选；数据变化后会继续复核"
+                      : "尚未归入候选，系统会在后续批次继续筛选"}
                   </span>
                 ) : (
                   <div className="signal-card__button-stack">
