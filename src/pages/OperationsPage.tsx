@@ -12,6 +12,12 @@ import type { OperationsStatus } from "../../shared/types";
 import { api } from "../api";
 import { ErrorState, LoadingState } from "../components";
 import { shortDate } from "../format";
+import {
+  jobErrorLabel,
+  jobStatusLabel,
+  jobTriggerLabel,
+  jobTypeLabel,
+} from "../job-format";
 
 export function OperationsPage() {
   const [status, setStatus] = useState<OperationsStatus | null>(null);
@@ -54,9 +60,9 @@ export function OperationsPage() {
 
   const sourceRows = [
     ["自动发现", status.scheduler.discoveryEnabled],
-    ["AI Judge", status.sources.ai],
+    ["AI 判断", status.sources.ai],
     ["搜索需求", status.sources.search],
-    ["Web 竞品", status.sources.webCompetitors],
+    ["网页竞品", status.sources.webCompetitors],
     ["Apple 市场", status.sources.appleMarket],
   ] as const;
 
@@ -64,10 +70,10 @@ export function OperationsPage() {
     <div className="operations-page">
       <section className="operations-command">
         <div>
-          <span className="eyebrow">PRODUCTION CONTROL</span>
+          <span className="eyebrow">生产控制</span>
           <h2>系统是否足以支持今天的判断？</h2>
           <p>
-            {status.mode} ·{" "}
+            {status.mode === "REAL" ? "真实模式" : "演示模式"} ·{" "}
             {(status.markets.length ? status.markets : [status.market])
               .map(
                 (market) =>
@@ -117,7 +123,7 @@ export function OperationsPage() {
               ? shortDate(status.discovery.latestAt)
               : "尚无"}
             {status.discovery.latestStatus
-              ? ` · ${status.discovery.latestStatus}`
+              ? ` · ${jobStatusLabel(status.discovery.latestStatus)}`
               : ""}
           </span>
           <strong>
@@ -160,7 +166,7 @@ export function OperationsPage() {
         <section className="panel source-matrix">
           <header className="panel__header">
             <div>
-              <span className="eyebrow">SOURCE MATRIX</span>
+              <span className="eyebrow">数据来源</span>
               <h2>数据源</h2>
             </div>
           </header>
@@ -168,7 +174,7 @@ export function OperationsPage() {
             <div key={label} className="source-row">
               {connected ? <CircleCheck size={17} /> : <CircleX size={17} />}
               <span>{label}</span>
-              <strong>{connected ? "READY" : "OFF"}</strong>
+              <strong>{connected ? "正常" : "关闭"}</strong>
             </div>
           ))}
         </section>
@@ -176,7 +182,7 @@ export function OperationsPage() {
         <section className="panel job-history">
           <header className="panel__header">
             <div>
-              <span className="eyebrow">JOB HISTORY</span>
+              <span className="eyebrow">任务记录</span>
               <h2>最近任务</h2>
             </div>
           </header>
@@ -185,11 +191,15 @@ export function OperationsPage() {
               <div className="job-row" key={job.id}>
                 <i className={`job-dot job-dot--${job.status.toLowerCase()}`} />
                 <div>
-                  <strong>{job.type}</strong>
-                  <span>{job.trigger} · {shortDate(job.startedAt)}</span>
-                  {job.error && <small>{job.error}</small>}
+                  <strong>{jobTypeLabel(job.type)}</strong>
+                  <span>
+                    {jobTriggerLabel(job.trigger)} · {shortDate(job.startedAt)}
+                  </span>
+                  {job.error && (
+                    <small title={job.error}>{jobErrorLabel(job.error)}</small>
+                  )}
                 </div>
-                <b>{job.status}</b>
+                <b>{jobStatusLabel(job.status)}</b>
               </div>
             ))
           ) : (
