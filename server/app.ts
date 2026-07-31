@@ -18,6 +18,7 @@ import {
   researchOpportunity,
 } from "./research.js";
 import { latestSchemaVersion } from "./migrations.js";
+import { estimateResearchCost } from "./providers.js";
 import { createSecurity, fixedWindowRateLimiter } from "./security.js";
 import { linkSignalEvidence } from "./signal-evidence.js";
 import {
@@ -27,7 +28,11 @@ import {
   startDiscoveryPipeline,
   startResearchJob,
 } from "./jobs.js";
-import { UsageBudgetExceededError, UsageLedger } from "./usage.js";
+import {
+  UsageBudgetConfirmationRequiredError,
+  UsageBudgetExceededError,
+  UsageLedger,
+} from "./usage.js";
 import {
   createProductSchema,
   createSignalSchema,
@@ -61,6 +66,7 @@ const listQuerySchema = z.object({
 
 const researchRequestSchema = z.object({
   force: z.boolean().default(false),
+  confirmTaskBudgetOverride: z.boolean().default(false),
 });
 
 const batchResearchRequestSchema = z.object({
@@ -129,7 +135,14 @@ function handleError(
   }
   const message = error instanceof Error ? error.message : "服务器发生未知错误";
   let status = 500;
-  if (
+  if (error instanceof UsageBudgetConfirmationRequiredError) {
+    response.status(409).json({
+      error: error.message,
+      code: error.code,
+      details: error.details,
+    });
+    return;
+  } else if (
     error instanceof ResearchInProgressError ||
     error instanceof JobAlreadyRunningError
   ) {
@@ -153,6 +166,87 @@ function handleError(
   response
     .status(status)
     .json({ error: status === 500 ? "服务器暂时无法完成请求" : message });
+}
+
+export function configForManualOpportunityResearch(
+  db: RadarDatabase,
+  config: AppConfig,
+  opportunityId: string,
+  force: boolean,
+  confirmTaskBudgetOverride: boolean,
+) {
+  const opportunityRow = db
+    .prepare("SELECT * FROM opportunities WHERE id = ?")
+    .get(opportunityId) as Record<string, unknown> | undefined;
+  if (!opportunityRow) throw new Error("找不到这个候选产品");
+  const opportunity = mapOpportunity(opportunityRow);
+  const hasReport = Boolean(
+    db
+      .prepare(
+        `SELECT 1 FROM research_reports
+         WHERE opportunity_id = ? LIMIT 1`,
+      )
+      .get(opportunityId),
+  );
+  const freshnessCutoff = new Date(
+    Date.now() - config.researchFreshnessDays * 24 * 60 * 60 * 1_000,
+  ).toISOString();
+  if (
+    !force &&
+    hasReport &&
+    opportunity.lastResearchedAt &&
+    opportunity.lastResearchedAt >= freshnessCutoff
+  ) {
+    return config;
+  }
+
+  const estimate = estimateResearchCost([opportunity], config, "live");
+  if (!estimate.taskUnits) return config;
+  const usage = new UsageLedger(db, config).today().dataForSeo;
+  const projectedCostUsd = Number(
+    (usage.reportedCostUsd + estimate.estimatedCostUsd).toFixed(6),
+  );
+  if (projectedCostUsd > usage.dailyCostLimitUsd) {
+    throw new UsageBudgetExceededError(
+      "DATAFORSEO",
+      usage.dailyCostLimitUsd,
+      "daily_cost",
+    );
+  }
+  if (
+    usage.monthlyCostUsd + estimate.estimatedCostUsd >
+    usage.monthlyCostLimitUsd
+  ) {
+    throw new UsageBudgetExceededError(
+      "DATAFORSEO",
+      usage.monthlyCostLimitUsd,
+      "monthly_cost",
+    );
+  }
+
+  const projectedTasks = usage.used + estimate.taskUnits;
+  if (projectedTasks <= usage.limit) return config;
+  const details = {
+    usedTasks: usage.used,
+    taskLimit: usage.limit,
+    estimatedAdditionalTasks: estimate.taskUnits,
+    projectedTasks,
+    currentCostUsd: usage.reportedCostUsd,
+    estimatedAdditionalCostUsd: estimate.estimatedCostUsd,
+    projectedCostUsd,
+    dailyCostLimitUsd: usage.dailyCostLimitUsd,
+  };
+  if (!confirmTaskBudgetOverride) {
+    throw new UsageBudgetConfirmationRequiredError(details);
+  }
+  logEvent("warn", "manual_dataforseo_task_budget_override", {
+    opportunityId,
+    ...details,
+  });
+  return {
+    ...config,
+    maxDataForSeoTasksPerDay: Math.ceil(projectedTasks),
+  };
 }
 
 export function createApp(db: RadarDatabase, config: AppConfig) {
@@ -471,10 +565,17 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     async (request, response, next) => {
       try {
         const input = researchRequestSchema.parse(request.body ?? {});
+        const executionConfig = configForManualOpportunityResearch(
+          db,
+          config,
+          String(request.params.id),
+          input.force,
+          input.confirmTaskBudgetOverride,
+        );
         const execution = await researchOpportunity(
           db,
           String(request.params.id),
-          config,
+          executionConfig,
           input,
         );
         response.status(execution.cached ? 200 : 201).json({

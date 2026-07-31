@@ -1,8 +1,9 @@
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { configForManualOpportunityResearch, createApp } from "./app.js";
 import { createDatabase, type RadarDatabase } from "./db.js";
 import { createTestConfig } from "./test-config.js";
+import { UsageBudgetExceededError } from "./usage.js";
 
 const config = createTestConfig();
 
@@ -135,6 +136,99 @@ describe("Product Radar API", () => {
       .expect(200);
     expect(detail.body.opportunity.researchStatus).toBe("READY");
     expect(detail.body.reports).toHaveLength(1);
+  });
+
+  it("asks for one-time confirmation before manually exceeding the task budget", async () => {
+    const realConfig = createTestConfig({
+      researchProvider: "real",
+      openAiApiKey: "test-key",
+      dataForSeoLogin: "test-login",
+      dataForSeoPassword: "test-password",
+      researchMarkets: [
+        {
+          countryCode: "US",
+          locationCode: 2840,
+          keywordLanguageCode: "en",
+          searchLanguageCode: "en",
+        },
+        {
+          countryCode: "CN",
+          locationCode: 2156,
+          keywordLanguageCode: "zh_CN",
+          searchLanguageCode: "zh-CN",
+        },
+      ],
+      collectWebCompetitors: true,
+      collectAppleMarket: true,
+    });
+    app = createApp(database, realConfig);
+    const signal = await request(app)
+      .post("/api/signals")
+      .send({
+        sourceType: "IDEA",
+        title: "Manual budget decision",
+        content: "A Web workflow that needs market research.",
+      })
+      .expect(201);
+    const candidate = await request(app)
+      .post(`/api/signals/${signal.body.id}/process`)
+      .expect(201);
+    database
+      .prepare(
+        `INSERT INTO usage_events (
+           id, provider, operation, units, cost_usd, metadata_json, created_at
+         ) VALUES (?, 'DATAFORSEO', 'previous', 100, 0.3, '{}', ?)`,
+      )
+      .run(crypto.randomUUID(), new Date().toISOString());
+
+    const confirmation = await request(app)
+      .post(`/api/opportunities/${candidate.body.id}/research`)
+      .send({ force: false })
+      .expect(409);
+    expect(confirmation.body).toMatchObject({
+      code: "DATAFORSEO_TASK_BUDGET_CONFIRMATION_REQUIRED",
+      details: {
+        usedTasks: 100,
+        taskLimit: 100,
+        estimatedAdditionalTasks: 4,
+        projectedTasks: 104,
+        currentCostUsd: 0.3,
+        estimatedAdditionalCostUsd: 0.184,
+        projectedCostUsd: 0.484,
+        dailyCostLimitUsd: 0.5,
+      },
+    });
+    expect(
+      database
+        .prepare("SELECT research_status FROM opportunities WHERE id = ?")
+        .get(candidate.body.id),
+    ).toEqual({ research_status: "UNRESEARCHED" });
+    expect(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM usage_events")
+        .get(),
+    ).toEqual({ count: 1 });
+
+    const overrideConfig = configForManualOpportunityResearch(
+      database,
+      realConfig,
+      candidate.body.id,
+      false,
+      true,
+    );
+    expect(overrideConfig.maxDataForSeoTasksPerDay).toBe(104);
+    expect(overrideConfig.maxDataForSeoCostPerDayUsd).toBe(0.5);
+
+    database.prepare("UPDATE usage_events SET cost_usd = 0.4").run();
+    expect(() =>
+      configForManualOpportunityResearch(
+        database,
+        realConfig,
+        candidate.body.id,
+        false,
+        true,
+      ),
+    ).toThrow(UsageBudgetExceededError);
   });
 
   it("rejects overlapping research for the same opportunity", async () => {

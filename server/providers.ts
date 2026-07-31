@@ -21,6 +21,45 @@ export interface ResearchCollectionRequest {
   version: number;
 }
 
+export interface ResearchCostEstimate {
+  taskUnits: number;
+  estimatedCostUsd: number;
+}
+
+export function estimateResearchCost(
+  opportunities: Opportunity[],
+  config: AppConfig,
+  delivery: ResearchDelivery = "live",
+): ResearchCostEstimate {
+  if (config.researchProvider !== "real" || !opportunities.length) {
+    return { taskUnits: 0, estimatedCostUsd: 0 };
+  }
+  const marketCount = config.researchMarkets.length;
+  const searchVolumeCost = delivery === "standard" ? 0.06 : 0.09;
+  let taskUnits = marketCount;
+  let estimatedCostUsd = marketCount * searchVolumeCost;
+  for (const opportunity of opportunities) {
+    if (
+      config.collectWebCompetitors &&
+      opportunity.recommendedPlatform !== "IOS"
+    ) {
+      taskUnits += marketCount;
+      estimatedCostUsd += marketCount * 0.002;
+    }
+    if (
+      config.collectAppleMarket &&
+      opportunity.recommendedPlatform !== "WEB"
+    ) {
+      taskUnits += marketCount;
+      estimatedCostUsd += marketCount * 0.0012;
+    }
+  }
+  return {
+    taskUnits,
+    estimatedCostUsd: Number(estimatedCostUsd.toFixed(6)),
+  };
+}
+
 function stableNumber(input: string, min: number, max: number) {
   let hash = 2166136261;
   for (let index = 0; index < input.length; index += 1) {

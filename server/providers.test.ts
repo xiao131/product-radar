@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Opportunity } from "../shared/types.js";
-import { DataForSeoProvider } from "./providers.js";
+import { createTestConfig } from "./test-config.js";
+import { DataForSeoProvider, estimateResearchCost } from "./providers.js";
 
 function opportunity(id: string, name: string): Opportunity {
   return {
@@ -56,6 +57,49 @@ afterEach(() => {
 });
 
 describe("DataForSeoProvider", () => {
+  it("estimates task units and cost before a paid request", () => {
+    const config = createTestConfig({
+      researchProvider: "real",
+      researchMarkets: [
+        {
+          countryCode: "US",
+          locationCode: 2840,
+          keywordLanguageCode: "en",
+          searchLanguageCode: "en",
+        },
+        {
+          countryCode: "CN",
+          locationCode: 2156,
+          keywordLanguageCode: "zh_CN",
+          searchLanguageCode: "zh-CN",
+        },
+      ],
+      collectWebCompetitors: true,
+      collectAppleMarket: true,
+    });
+    expect(estimateResearchCost([opportunity("web", "Web Tool")], config)).toEqual({
+      taskUnits: 4,
+      estimatedCostUsd: 0.184,
+    });
+    expect(
+      estimateResearchCost(
+        [
+          opportunity("web", "Web Tool"),
+          {
+            ...opportunity("ios", "iOS Tool"),
+            recommendedPlatform: "IOS",
+          },
+          {
+            ...opportunity("both", "Cross Platform Tool"),
+            recommendedPlatform: "WEB_AND_IOS",
+          },
+        ],
+        config,
+        "standard",
+      ),
+    ).toEqual({ taskUnits: 10, estimatedCostUsd: 0.1328 });
+  });
+
   it("collects multiple opportunities in one live task", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       response({

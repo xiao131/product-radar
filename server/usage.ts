@@ -4,6 +4,27 @@ import type { RadarDatabase } from "./db.js";
 
 export type UsageProvider = "AI" | "DATAFORSEO";
 
+export interface DataForSeoTaskBudgetConfirmation {
+  usedTasks: number;
+  taskLimit: number;
+  estimatedAdditionalTasks: number;
+  projectedTasks: number;
+  currentCostUsd: number;
+  estimatedAdditionalCostUsd: number;
+  projectedCostUsd: number;
+  dailyCostLimitUsd: number;
+}
+
+export class UsageBudgetConfirmationRequiredError extends Error {
+  readonly code = "DATAFORSEO_TASK_BUDGET_CONFIRMATION_REQUIRED";
+
+  constructor(public readonly details: DataForSeoTaskBudgetConfirmation) {
+    super(
+      `本次调研预计新增 ${details.estimatedAdditionalTasks} 个 DataForSEO 计费子任务，需要确认是否继续`,
+    );
+  }
+}
+
 export class UsageBudgetExceededError extends Error {
   constructor(
     public readonly provider: UsageProvider,

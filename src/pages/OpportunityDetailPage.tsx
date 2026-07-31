@@ -13,7 +13,7 @@ import type {
   OpportunityDetail,
   ResearchResponse,
 } from "../../shared/types";
-import { api } from "../api";
+import { api, dataForSeoBudgetConfirmation } from "../api";
 import {
   Delta,
   ErrorState,
@@ -74,6 +74,51 @@ export function OpportunityDetailPage() {
 
   useEffect(load, [id]);
 
+  async function submitResearch(
+    force: boolean,
+    confirmTaskBudgetOverride = false,
+  ) {
+    if (!id) return;
+    try {
+      const result = await api<ResearchResponse>(
+        `/api/opportunities/${id}/research`,
+        {
+          method: "POST",
+          body: JSON.stringify({ force, confirmTaskBudgetOverride }),
+        },
+      );
+      setResearchMessage(
+        result.cached
+          ? `最近 ${result.freshnessDays} 天内已有结果，本次直接使用缓存，没有调用付费数据。`
+          : "已采集新数据并生成最新判断。",
+      );
+      load();
+    } catch (caught) {
+      const budget = dataForSeoBudgetConfirmation(caught);
+      if (budget) {
+        if (confirmTaskBudgetOverride) {
+          setResearchError(
+            "预算状态在确认后发生变化，本次没有继续调用，请重新点击调研。",
+          );
+          return;
+        }
+        const confirmed = window.confirm(
+          `本次调研预计新增 ${budget.estimatedAdditionalTasks} 个 DataForSEO 计费子任务，约 $${budget.estimatedAdditionalCostUsd.toFixed(3)}。\n\n` +
+            `今日已用 ${budget.usedTasks}/${budget.taskLimit} 个子任务，已记录 $${budget.currentCostUsd.toFixed(3)}/$${budget.dailyCostLimitUsd.toFixed(2)}。\n` +
+            `继续后预计为 ${budget.projectedTasks} 个子任务、$${budget.projectedCostUsd.toFixed(3)}。\n\n` +
+            "是否仅对本次调研继续？美元日/月硬上限仍然有效。",
+        );
+        if (confirmed) {
+          await submitResearch(force, true);
+        } else {
+          setResearchMessage("已取消本次调研，没有调用付费数据。");
+        }
+        return;
+      }
+      setResearchError(caught instanceof Error ? caught.message : "调研失败");
+    }
+  }
+
   async function research(force = false) {
     if (!id) return;
     if (
@@ -86,21 +131,7 @@ export function OpportunityDetailPage() {
     setResearchError("");
     setResearchMessage("");
     try {
-      const result = await api<ResearchResponse>(
-        `/api/opportunities/${id}/research`,
-        {
-          method: "POST",
-          body: JSON.stringify({ force }),
-        },
-      );
-      setResearchMessage(
-        result.cached
-          ? `最近 ${result.freshnessDays} 天内已有结果，本次直接使用缓存，没有调用付费数据。`
-          : "已采集新数据并生成最新判断。",
-      );
-      load();
-    } catch (caught) {
-      setResearchError(caught instanceof Error ? caught.message : "调研失败");
+      await submitResearch(force);
     } finally {
       setResearching(false);
     }
