@@ -1,7 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
 
-export type AiProvider = "gateway" | "openai";
+export type AiProvider = "gateway" | "openai" | "anthropic";
 export type AiReasoningEffort =
   | "none"
   | "low"
@@ -32,6 +32,8 @@ export interface AppConfig {
   aiGatewayApiKey?: string;
   openAiApiKey?: string;
   openAiBaseUrl: string;
+  anthropicApiKey?: string;
+  anthropicBaseUrl: string;
   aiReasoningEffort: AiReasoningEffort;
   aiDisableResponseStorage: boolean;
   dataForSeoLogin?: string;
@@ -114,8 +116,19 @@ function requireProductionValue(name: string, value: string | undefined) {
 }
 
 function aiProviderValue(value: string | undefined): AiProvider {
-  if (value === "openai" || value === "gateway") return value;
+  if (value === "openai" || value === "anthropic" || value === "gateway") {
+    return value;
+  }
+  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   return process.env.OPENAI_API_KEY ? "openai" : "gateway";
+}
+
+function anthropicBaseUrlValue(value: string | undefined) {
+  const normalized = (value?.trim() || "https://api.anthropic.com/v1").replace(
+    /\/+$/,
+    "",
+  );
+  return normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
 }
 
 function reasoningEffortValue(value: string | undefined): AiReasoningEffort {
@@ -168,7 +181,9 @@ function researchMarketsValue(
 export function isAiConfigured(config: AppConfig) {
   return config.aiProvider === "openai"
     ? Boolean(config.openAiApiKey)
-    : Boolean(config.aiGatewayApiKey);
+    : config.aiProvider === "anthropic"
+      ? Boolean(config.anthropicApiKey)
+      : Boolean(config.aiGatewayApiKey);
 }
 
 export function loadConfig(): AppConfig {
@@ -188,11 +203,24 @@ export function loadConfig(): AppConfig {
   const aiProvider = aiProviderValue(process.env.AI_PROVIDER);
   const aiModel =
     process.env.AI_MODEL ??
-    (aiProvider === "openai" ? "gpt-5.6-terra" : "openai/gpt-5.6-terra");
+    (aiProvider === "openai"
+      ? "gpt-5.6-terra"
+      : aiProvider === "anthropic"
+        ? "claude-sonnet-4-5"
+        : "openai/gpt-5.6-terra");
+  const anthropicApiKey =
+    process.env.ANTHROPIC_API_KEY?.trim() ||
+    (aiProvider === "anthropic" ? process.env.OPENAI_API_KEY : undefined);
+  const anthropicBaseUrl = anthropicBaseUrlValue(
+    process.env.ANTHROPIC_BASE_URL?.trim() ||
+      (aiProvider === "anthropic" ? process.env.OPENAI_BASE_URL : undefined),
+  );
   const hasAi =
     aiProvider === "openai"
       ? Boolean(process.env.OPENAI_API_KEY)
-      : Boolean(process.env.AI_GATEWAY_API_KEY);
+      : aiProvider === "anthropic"
+        ? Boolean(anthropicApiKey)
+        : Boolean(process.env.AI_GATEWAY_API_KEY);
   const hasSearch = Boolean(
     process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD,
   );
@@ -276,6 +304,8 @@ export function loadConfig(): AppConfig {
     aiGatewayApiKey: process.env.AI_GATEWAY_API_KEY,
     openAiApiKey: process.env.OPENAI_API_KEY,
     openAiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
+    anthropicApiKey,
+    anthropicBaseUrl,
     aiReasoningEffort: reasoningEffortValue(process.env.AI_REASONING_EFFORT),
     aiDisableResponseStorage: booleanValue(
       process.env.AI_DISABLE_RESPONSE_STORAGE,

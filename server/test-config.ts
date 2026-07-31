@@ -16,6 +16,7 @@ export function createTestConfig(
     aiProvider: "gateway",
     aiModel: "openai/gpt-5.6-terra",
     openAiBaseUrl: "https://api.openai.com/v1",
+    anthropicBaseUrl: "https://api.anthropic.com/v1",
     aiReasoningEffort: "xhigh",
     aiDisableResponseStorage: true,
     marketLocationCode: 2840,

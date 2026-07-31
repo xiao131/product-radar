@@ -40,4 +40,25 @@ describe("AI configuration", () => {
     expect(config.researchProvider).toBe("demo");
     expect(isAiConfigured(config)).toBe(false);
   });
+
+  it("supports an Anthropic Messages relay and legacy OpenAI variable names", () => {
+    vi.stubEnv("RESEARCH_PROVIDER", "real");
+    vi.stubEnv("AI_PROVIDER", "anthropic");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "");
+    vi.stubEnv("OPENAI_BASE_URL", "https://relay.example");
+    vi.stubEnv("OPENAI_API_KEY", "anthropic-test-key");
+    vi.stubEnv("AI_MODEL", "claude-opus-5");
+    vi.stubEnv("DATAFORSEO_LOGIN", "test-login");
+    vi.stubEnv("DATAFORSEO_PASSWORD", "test-password");
+
+    const config = loadConfig();
+
+    expect(config.researchProvider).toBe("real");
+    expect(config.aiProvider).toBe("anthropic");
+    expect(config.aiModel).toBe("claude-opus-5");
+    expect(config.anthropicApiKey).toBe("anthropic-test-key");
+    expect(config.anthropicBaseUrl).toBe("https://relay.example/v1");
+    expect(isAiConfigured(config)).toBe(true);
+  });
 });

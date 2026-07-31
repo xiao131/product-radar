@@ -1,3 +1,4 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
 import {
   createOpenAI,
   type OpenAILanguageModelResponsesOptions,
@@ -8,6 +9,14 @@ import type { AppConfig } from "./config.js";
 export function createResearchAiModel(config: AppConfig): LanguageModel {
   if (config.aiProvider === "gateway") {
     return gateway(config.aiModel);
+  }
+
+  if (config.aiProvider === "anthropic") {
+    const anthropic = createAnthropic({
+      apiKey: config.anthropicApiKey,
+      baseURL: config.anthropicBaseUrl,
+    });
+    return anthropic(config.aiModel);
   }
 
   const openai = createOpenAI({

@@ -207,6 +207,18 @@ DATAFORSEO_PASSWORD=...
 前缀，程序会在它后面请求 `/responses`；如果中转要求 `/v1/responses`，请把
 `OPENAI_BASE_URL` 配成包含 `/v1` 的地址。
 
+Claude 模型应使用 Anthropic Messages 协议：
+
+```env
+AI_PROVIDER=anthropic
+ANTHROPIC_BASE_URL=https://api.anthropic.com/v1
+ANTHROPIC_API_KEY=...
+AI_MODEL=claude-opus-5
+```
+
+为兼容已有中转配置，Anthropic 模式未设置 `ANTHROPIC_*` 时也会读取
+`OPENAI_BASE_URL` 和 `OPENAI_API_KEY`，并自动在 Base URL 后补 `/v1`。
+
 如需继续使用 Vercel AI Gateway：
 
 ```env
@@ -313,11 +325,13 @@ npm run research:batch
 | `RESEARCH_MARKETS` | 使用上面三个单市场变量 | 否 | 多市场列表，格式为 `国家:位置:Ads语言:搜索语言`，逗号分隔 |
 | `COLLECT_WEB_COMPETITORS` | `true` | 否 | 是否采集 Google Organic 竞品 |
 | `COLLECT_APPLE_MARKET` | `true` | 否 | 是否采集 Apple App Search 数据 |
-| `AI_PROVIDER` | 自动选择 | 否 | `openai`（Responses 中转/官方 API）或 `gateway` |
+| `AI_PROVIDER` | 自动选择 | 否 | `openai`（Responses）、`anthropic`（Messages）或 `gateway` |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai` 模式 | OpenAI-compatible API 前缀 |
 | `OPENAI_API_KEY` | 空 | `openai` 真实模式 | 通过 Bearer Header 发送的服务端鉴权密钥 |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `anthropic` 模式 | Anthropic Messages API 前缀；缺省时兼容读取 `OPENAI_BASE_URL` |
+| `ANTHROPIC_API_KEY` | 空 | `anthropic` 真实模式 | Anthropic `x-api-key`；缺省时兼容读取 `OPENAI_API_KEY` |
 | `AI_GATEWAY_API_KEY` | 空 | `gateway` 真实模式 | Vercel AI Gateway 鉴权 |
-| `AI_MODEL` | 按 Provider 选择 | 否 | `openai` 默认 `gpt-5.6-terra`；`gateway` 默认 `openai/gpt-5.6-terra` |
+| `AI_MODEL` | 按 Provider 选择 | 否 | `openai` 默认 `gpt-5.6-terra`；`anthropic` 默认 `claude-sonnet-4-5`；`gateway` 默认 `openai/gpt-5.6-terra` |
 | `AI_REASONING_EFFORT` | `xhigh` | 否 | Responses 推理强度：`none`/`low`/`medium`/`high`/`xhigh`/`max` |
 | `AI_DISABLE_RESPONSE_STORAGE` | `true` | 否 | 为 `true` 时向 Responses API 发送 `store=false` |
 | `AUTO_DISCOVERY_ENABLED` | 真实模式为 `true` | 否 | 启用互联网/API 自动发现候选 |

@@ -98,4 +98,51 @@ describe("research AI provider", () => {
     expect(model.provider).toContain("gateway");
     expect(createResearchAiProviderOptions(gatewayConfig)).toBeUndefined();
   });
+
+  it("uses the Anthropic Messages protocol for Claude models", async () => {
+    const anthropicConfig: AppConfig = {
+      ...relayConfig,
+      aiProvider: "anthropic",
+      aiModel: "claude-opus-5",
+      anthropicApiKey: "anthropic-test-key",
+      anthropicBaseUrl: "https://relay.example/v1",
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          type: "error",
+          error: { type: "api_error", message: "intentional test response" },
+        }),
+        {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateText({
+        model: createResearchAiModel(anthropicConfig),
+        output: Output.object({ schema: z.object({ answer: z.string() }) }),
+        providerOptions: createResearchAiProviderOptions(anthropicConfig),
+        prompt: "Return a short answer.",
+        maxRetries: 0,
+      }),
+    ).rejects.toThrow();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    const headers = new Headers(request.headers);
+    const body = JSON.parse(String(request.body)) as { model: string };
+
+    expect(url).toBe("https://relay.example/v1/messages");
+    expect(headers.get("x-api-key")).toBe("anthropic-test-key");
+    expect(headers.get("anthropic-version")).toBe("2023-06-01");
+    expect(body.model).toBe("claude-opus-5");
+    expect(createResearchAiProviderOptions(anthropicConfig)).toBeUndefined();
+  });
 });

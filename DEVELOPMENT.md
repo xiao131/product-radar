@@ -250,6 +250,9 @@ AI_MODEL=gpt-5.6-terra
 AI_REASONING_EFFORT=xhigh
 AI_DISABLE_RESPONSE_STORAGE=true
 
+ANTHROPIC_BASE_URL=
+ANTHROPIC_API_KEY=
+
 AI_GATEWAY_API_KEY=
 ```
 
@@ -258,12 +261,15 @@ AI_GATEWAY_API_KEY=
 
 切换到真实调研需要同时配置：
 
-- `OPENAI_API_KEY`（`AI_PROVIDER=openai`）或 `AI_GATEWAY_API_KEY`
-  （`AI_PROVIDER=gateway`）：执行 Researcher、Advocate/Critic、Judge 三阶段判断；
+- `OPENAI_API_KEY`（`AI_PROVIDER=openai`）、`ANTHROPIC_API_KEY`
+  （`AI_PROVIDER=anthropic`）或 `AI_GATEWAY_API_KEY`（`AI_PROVIDER=gateway`）：
+  执行 Researcher、Advocate/Critic、Judge 三阶段判断；Anthropic 模式也兼容
+  从 `OPENAI_API_KEY` / `OPENAI_BASE_URL` 读取已有中转配置；
 - `DATAFORSEO_LOGIN` 与 `DATAFORSEO_PASSWORD`：获取关键词搜索量、月度变化、
   CPC、Google Organic 竞品和 Apple App Search 市场数据。
 
-OpenAI 模式使用 Responses API，并默认发送 `store=false`。Reddit 与 X 可以先
+OpenAI 模式使用 Responses API，并默认发送 `store=false`；Anthropic 模式使用
+Messages API。Reddit 与 X 可以先
 通过手工信号或 CSV 导入；信号在处理或关联后会成为带原文与来源的证据。
 
 默认情况下，7 天内的调研直接复用缓存。生产调度器和
