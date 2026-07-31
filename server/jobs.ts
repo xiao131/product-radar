@@ -195,8 +195,15 @@ export function runResearchJob(
   config: AppConfig,
   trigger: JobTrigger,
   delivery: "live" | "standard",
+  forceOpportunityIds: string[] = [],
 ) {
-  return startResearchJob(db, config, trigger, delivery).completion;
+  return startResearchJob(
+    db,
+    config,
+    trigger,
+    delivery,
+    forceOpportunityIds,
+  ).completion;
 }
 
 export function startResearchJob(
@@ -204,6 +211,7 @@ export function startResearchJob(
   config: AppConfig,
   trigger: JobTrigger,
   delivery: "live" | "standard",
+  forceOpportunityIds: string[] = [],
 ) {
   return startJob(
     db,
@@ -214,7 +222,13 @@ export function startResearchJob(
       config.dataForSeoBatchTimeoutMs + 60 * 60 * 1_000,
       48 * 60 * 60 * 1_000,
     ),
-    () => researchDueOpportunities(db, config, delivery),
+    () =>
+      researchDueOpportunities(
+        db,
+        config,
+        delivery,
+        forceOpportunityIds,
+      ),
   );
 }
 

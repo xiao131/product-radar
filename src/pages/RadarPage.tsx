@@ -10,6 +10,7 @@ import type {
   BatchResearchResult,
   Opportunity,
   Paginated,
+  ResearchQueuedResponse,
 } from "../../shared/types";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, OpportunityRow } from "../components";
@@ -75,10 +76,17 @@ export function RadarPage() {
     setBatchMessage("");
     setBatchError("");
     try {
-      const result = await api<BatchResearchResult>("/api/research/batch", {
+      const result = await api<BatchResearchResult | ResearchQueuedResponse>("/api/research/batch", {
         method: "POST",
         body: JSON.stringify({ delivery: "standard" }),
       });
+      if ("queued" in result) {
+        setBatchMessage(
+          "已启动低成本后台批量调研。系统会优先复用新鲜证据，仅对缺失或过期数据调用付费接口。",
+        );
+        window.setTimeout(() => setRefreshVersion((value) => value + 1), 2_000);
+        return;
+      }
       setBatchMessage(
         result.requested === 0
           ? "所有候选数据都在新鲜期内，本次没有调用付费数据。"

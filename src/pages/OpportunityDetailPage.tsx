@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import type {
   DimensionScore,
   OpportunityDetail,
-  ResearchResponse,
+  OpportunityResearchResponse,
 } from "../../shared/types";
 import { api, dataForSeoBudgetConfirmation } from "../api";
 import {
@@ -80,13 +80,20 @@ export function OpportunityDetailPage() {
   ) {
     if (!id) return;
     try {
-      const result = await api<ResearchResponse>(
+      const result = await api<OpportunityResearchResponse>(
         `/api/opportunities/${id}/research`,
         {
           method: "POST",
           body: JSON.stringify({ force, confirmTaskBudgetOverride }),
         },
       );
+      if ("queued" in result) {
+        setResearchMessage(
+          "已加入低成本批量调研队列。任务将在后台使用缓存、Labs 和 Standard 数据完成，可在运行状态中查看进度。",
+        );
+        window.setTimeout(load, 2_000);
+        return;
+      }
       setResearchMessage(
         result.cached
           ? `最近 ${result.freshnessDays} 天内已有结果，本次直接使用缓存，没有调用付费数据。`
@@ -123,7 +130,7 @@ export function OpportunityDetailPage() {
     if (!id) return;
     if (
       force &&
-      !window.confirm("强制刷新会立即调用外部数据和 AI 服务，确定继续吗？")
+      !window.confirm("强制刷新会忽略该候选的数据缓存，在后台重新购买外部数据并调用 AI，确定继续吗？")
     ) {
       return;
     }
@@ -337,7 +344,7 @@ export function OpportunityDetailPage() {
                 onClick={() => research(true)}
                 disabled={researching}
               >
-                强制实时刷新
+                强制刷新付费数据
               </button>
             )}
             {researchError && <div className="form-error">{researchError}</div>}

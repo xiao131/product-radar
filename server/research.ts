@@ -507,6 +507,30 @@ function isFresh(lastResearchedAt: string | null, freshnessDays: number) {
   return Date.now() - researchedAt < freshnessDays * 24 * 60 * 60 * 1_000;
 }
 
+export function researchFreshnessDaysFor(
+  opportunity: Opportunity,
+  baseFreshnessDays: number,
+) {
+  if (opportunity.verdict === "BUILD_NOW") return baseFreshnessDays;
+  if (opportunity.verdict === "VALIDATE_FIRST") {
+    return Math.max(baseFreshnessDays, 14);
+  }
+  if (opportunity.verdict === "WATCH") {
+    return Math.max(baseFreshnessDays, 30);
+  }
+  return Math.max(baseFreshnessDays, 90);
+}
+
+export function isOpportunityResearchDue(
+  opportunity: Opportunity,
+  baseFreshnessDays: number,
+) {
+  return !isFresh(
+    opportunity.lastResearchedAt,
+    researchFreshnessDaysFor(opportunity, baseFreshnessDays),
+  );
+}
+
 function startDiscoveryRun(
   db: RadarDatabase,
   opportunityId: string,
@@ -548,15 +572,19 @@ export async function researchOpportunity(
 
   const opportunity = mapOpportunity(opportunityRow);
   const previousReport = getReport(db, opportunityId);
+  const freshnessDays = researchFreshnessDaysFor(
+    opportunity,
+    config.researchFreshnessDays,
+  );
   if (
     !options.force &&
     previousReport &&
-    isFresh(opportunity.lastResearchedAt, config.researchFreshnessDays)
+    isFresh(opportunity.lastResearchedAt, freshnessDays)
   ) {
     return {
       report: previousReport,
       cached: true,
-      freshnessDays: config.researchFreshnessDays,
+      freshnessDays,
     };
   }
   const version = (previousReport?.version ?? 0) + 1;
@@ -724,7 +752,7 @@ export async function researchOpportunity(
     return {
       report,
       cached: false,
-      freshnessDays: config.researchFreshnessDays,
+      freshnessDays,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知调研错误";
@@ -832,22 +860,25 @@ function hasMaterialEvidenceChange(
 export async function researchDueOpportunities(
   db: RadarDatabase,
   config: AppConfig,
-  delivery: ResearchDelivery = "live",
+  delivery: ResearchDelivery = "standard",
+  forceOpportunityIds: string[] = [],
 ): Promise<BatchResearchResult> {
-  const cutoff = new Date(
-    Date.now() - config.researchFreshnessDays * 24 * 60 * 60 * 1_000,
-  ).toISOString();
+  const forcedIds = new Set(forceOpportunityIds);
   const opportunityRows = db
     .prepare(
       `SELECT *
        FROM opportunities
        WHERE research_status != 'RUNNING'
-         AND (last_researched_at IS NULL OR last_researched_at < ?)
        ORDER BY last_researched_at ASC, created_at ASC
        LIMIT 1000`,
     )
-    .all(cutoff) as Record<string, unknown>[];
-  const opportunities = opportunityRows.map(mapOpportunity);
+    .all() as Record<string, unknown>[];
+  const opportunities = opportunityRows
+    .map(mapOpportunity)
+    .filter((opportunity) =>
+      forcedIds.has(opportunity.id) ||
+      isOpportunityResearchDue(opportunity, config.researchFreshnessDays),
+    );
   const provider = createResearchProvider(config, db);
   const providerMode =
     config.researchProvider === "real" &&
@@ -869,6 +900,7 @@ export async function researchDueOpportunities(
   const requests: ResearchCollectionRequest[] = opportunities.map((opportunity) => ({
     opportunity,
     version: (getReport(db, opportunity.id)?.version ?? 0) + 1,
+    forceRefresh: forcedIds.has(opportunity.id),
   }));
   const evidenceByOpportunity = await provider.collectBatch(requests, delivery);
 
@@ -892,7 +924,7 @@ export async function researchDueOpportunities(
         !hasMaterialEvidenceChange(previousMetrics, evidence)
       ) {
         persistEvidence(db, evidence);
-        const refreshedAt = evidence[0]?.collectedAt ?? new Date().toISOString();
+        const refreshedAt = new Date().toISOString();
         db.prepare(
           `UPDATE opportunities
            SET research_status = 'READY', updated_at = ?, last_researched_at = ?

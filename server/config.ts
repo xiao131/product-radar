@@ -43,6 +43,9 @@ export interface AppConfig {
   collectWebCompetitors: boolean;
   collectAppleMarket: boolean;
   researchFreshnessDays: number;
+  researchKeywordCacheDays: number;
+  researchSerpCacheDays: number;
+  researchAppCacheDays: number;
   researchRateLimitPerHour: number;
   requestRateLimitPerMinute: number;
   loginRateLimitPer15Minutes: number;
@@ -57,8 +60,11 @@ export interface AppConfig {
   dataForSeoBatchTimeoutMs: number;
   autoDiscoveryEnabled: boolean;
   discoveryLabsLimit: number;
+  discoveryLabsFreshnessDays: number;
   discoverySerpQueriesPerMarket: number;
+  discoverySerpFreshnessDays: number;
   discoveryAppDepth: number;
+  discoveryAppFreshnessDays: number;
   discoveryMaxCandidatesPerRun: number;
   discoveryAiSignalLimit: number;
   authRequired: boolean;
@@ -287,6 +293,18 @@ export function loadConfig(): AppConfig {
     ),
     collectAppleMarket: booleanValue(process.env.COLLECT_APPLE_MARKET, true),
     researchFreshnessDays: positiveNumber(process.env.RESEARCH_FRESHNESS_DAYS, 7),
+    researchKeywordCacheDays: positiveNumber(
+      process.env.RESEARCH_KEYWORD_CACHE_DAYS,
+      30,
+    ),
+    researchSerpCacheDays: positiveNumber(
+      process.env.RESEARCH_SERP_CACHE_DAYS,
+      14,
+    ),
+    researchAppCacheDays: positiveNumber(
+      process.env.RESEARCH_APP_CACHE_DAYS,
+      30,
+    ),
     researchRateLimitPerHour: positiveNumber(
       process.env.RESEARCH_RATE_LIMIT_PER_HOUR,
       30,
@@ -344,17 +362,29 @@ export function loadConfig(): AppConfig {
       10,
       1_000,
     ),
+    discoveryLabsFreshnessDays: positiveNumber(
+      process.env.DISCOVERY_LABS_FRESHNESS_DAYS,
+      30,
+    ),
     discoverySerpQueriesPerMarket: integerInRange(
       process.env.DISCOVERY_SERP_QUERIES_PER_MARKET,
       8,
       0,
       50,
     ),
+    discoverySerpFreshnessDays: positiveNumber(
+      process.env.DISCOVERY_SERP_FRESHNESS_DAYS,
+      3,
+    ),
     discoveryAppDepth: integerInRange(
       process.env.DISCOVERY_APP_DEPTH,
       100,
       0,
       1_000,
+    ),
+    discoveryAppFreshnessDays: positiveNumber(
+      process.env.DISCOVERY_APP_FRESHNESS_DAYS,
+      1,
     ),
     discoveryMaxCandidatesPerRun: integerInRange(
       process.env.DISCOVERY_MAX_CANDIDATES_PER_RUN,

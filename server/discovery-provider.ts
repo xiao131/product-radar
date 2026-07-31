@@ -197,6 +197,34 @@ export class DataForSeoDiscoveryProvider {
     };
   }
 
+  private purchasedRecently(
+    operation: string,
+    market: ResearchMarket,
+    freshnessDays: number,
+  ) {
+    const cutoff = new Date(
+      Date.now() - freshnessDays * 24 * 60 * 60 * 1_000,
+    ).toISOString();
+    const rows = this.database
+      .prepare(
+        `SELECT metadata_json
+         FROM usage_events
+         WHERE provider = 'DATAFORSEO'
+           AND operation = ?
+           AND created_at >= ?
+         ORDER BY created_at DESC`,
+      )
+      .all(operation, cutoff) as Array<{ metadata_json: string }>;
+    return rows.some((row) => {
+      try {
+        const metadata = JSON.parse(row.metadata_json) as { market?: string };
+        return metadata.market === market.countryCode;
+      } catch {
+        return false;
+      }
+    });
+  }
+
   private async request<T>(
     path: string,
     init?: RequestInit,
@@ -241,7 +269,11 @@ export class DataForSeoDiscoveryProvider {
           }
           return body;
         },
-        { retries: this.config.providerMaxRetries },
+        {
+          // Paid POST requests are not safely idempotent. A timeout can happen
+          // after DataForSEO accepted the task, so retry only unbilled polls.
+          retries: billed ? 0 : this.config.providerMaxRetries,
+        },
       );
       if (billed) {
         this.ledger.settle(
@@ -292,6 +324,15 @@ export class DataForSeoDiscoveryProvider {
   private async collectLabs(market: ResearchMarket) {
     // DataForSEO Labs Google currently has no mainland-China keyword database.
     if (market.countryCode === "CN") return [];
+    if (
+      this.purchasedRecently(
+        "discovery_keyword_ideas",
+        market,
+        this.config.discoveryLabsFreshnessDays,
+      )
+    ) {
+      return [];
+    }
     const limit = this.config.discoveryLabsLimit;
     const payload = await this.request<LabsKeywordResult>(
       "/dataforseo_labs/google/keyword_ideas/live",
@@ -375,6 +416,15 @@ export class DataForSeoDiscoveryProvider {
     const queries = this.queriesFor(market);
     if (!queries.length) return [];
     const engine = market.countryCode === "CN" ? "baidu" : "google";
+    if (
+      this.purchasedRecently(
+        `discovery_${engine}_serp_standard`,
+        market,
+        this.config.discoverySerpFreshnessDays,
+      )
+    ) {
+      return [];
+    }
     const posted = await this.request<SerpResult>(
       `/serp/${engine}/organic/task_post`,
       {
@@ -446,6 +496,15 @@ export class DataForSeoDiscoveryProvider {
 
   private async collectAppStore(market: ResearchMarket) {
     if (this.config.discoveryAppDepth <= 0) return [];
+    if (
+      this.purchasedRecently(
+        "discovery_apple_app_list_standard",
+        market,
+        this.config.discoveryAppFreshnessDays,
+      )
+    ) {
+      return [];
+    }
     const posted = await this.request<AppListResult>(
       "/app_data/apple/app_list/task_post",
       {

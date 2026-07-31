@@ -79,4 +79,62 @@ describe("DataForSEO automatic discovery", () => {
     });
     database.close();
   });
+
+  it("does not repurchase discovery data inside its source freshness window", async () => {
+    const database = createDatabase(":memory:", false);
+    const config = createTestConfig({
+      researchProvider: "real",
+      dataForSeoLogin: "login",
+      dataForSeoPassword: "password",
+      autoDiscoveryEnabled: true,
+      discoverySerpQueriesPerMarket: 0,
+      discoveryAppDepth: 0,
+    });
+    database.prepare(
+      `INSERT INTO usage_events (
+         id, provider, operation, units, cost_usd, metadata_json, created_at
+       ) VALUES (?, 'DATAFORSEO', 'discovery_keyword_ideas', 1, 0.024, ?, ?)`,
+    ).run(
+      crypto.randomUUID(),
+      JSON.stringify({ market: "US", automaticDiscovery: true }),
+      new Date().toISOString(),
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new DataForSeoDiscoveryProvider(
+      config,
+      database,
+    ).collect();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.counts).toEqual({ labs: 0, web: 0, appStore: 0 });
+    database.close();
+  });
+
+  it("does not automatically retry a paid POST after an ambiguous failure", async () => {
+    const database = createDatabase(":memory:", false);
+    const config = createTestConfig({
+      researchProvider: "real",
+      dataForSeoLogin: "login",
+      dataForSeoPassword: "password",
+      autoDiscoveryEnabled: true,
+      providerMaxRetries: 3,
+      discoverySerpQueriesPerMarket: 0,
+      discoveryAppDepth: 0,
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("temporary error", { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new DataForSeoDiscoveryProvider(
+      config,
+      database,
+    ).collect();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.warnings).toHaveLength(1);
+    database.close();
+  });
 });

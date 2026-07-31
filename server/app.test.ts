@@ -193,8 +193,8 @@ describe("Product Radar API", () => {
         estimatedAdditionalTasks: 4,
         projectedTasks: 104,
         currentCostUsd: 0.3,
-        estimatedAdditionalCostUsd: 0.184,
-        projectedCostUsd: 0.484,
+        estimatedAdditionalCostUsd: 0.07332,
+        projectedCostUsd: 0.37332,
         dailyCostLimitUsd: 0.5,
       },
     });
@@ -219,7 +219,7 @@ describe("Product Radar API", () => {
     expect(overrideConfig.maxDataForSeoTasksPerDay).toBe(104);
     expect(overrideConfig.maxDataForSeoCostPerDayUsd).toBe(0.5);
 
-    database.prepare("UPDATE usage_events SET cost_usd = 0.4").run();
+    database.prepare("UPDATE usage_events SET cost_usd = 0.44").run();
     expect(() =>
       configForManualOpportunityResearch(
         database,

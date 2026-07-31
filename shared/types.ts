@@ -151,6 +151,16 @@ export interface ResearchResponse extends ResearchReport {
   freshnessDays: number;
 }
 
+export interface ResearchQueuedResponse {
+  queued: true;
+  jobId: string;
+  status: "RUNNING";
+}
+
+export type OpportunityResearchResponse =
+  | ResearchResponse
+  | ResearchQueuedResponse;
+
 export interface BatchResearchResult {
   requested: number;
   researched: number;

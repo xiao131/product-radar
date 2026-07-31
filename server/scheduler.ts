@@ -74,7 +74,7 @@ export function startScheduler(db: RadarDatabase, config: AppConfig) {
       }
       if (
         hour >= config.schedulerResearchHour &&
-        !hasCompletedJobToday(db, "RESEARCH")
+        !hasAttemptedJobToday(db, "RESEARCH")
       ) {
         await runResearchJob(db, config, "scheduled", "standard");
       }

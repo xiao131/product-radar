@@ -497,8 +497,20 @@ async function discoverCandidatesWithAi(
   config: AppConfig,
   signals: Signal[],
 ) {
-  const selected = signals
-    .filter((signal) => !signal.opportunityId)
+  const available = signals.filter((signal) => !signal.opportunityId);
+  const changedOrNew = available.filter(
+    (signal) => !signal.aiReviewedAt || (signal.aiReviewCount ?? 0) === 0,
+  );
+  if (!changedOrNew.length || available.length < 2) {
+    return {
+      candidates: [] as AutomaticCandidate[],
+      reviewedSignalIds: [] as string[],
+    };
+  }
+  const selected = [
+    ...changedOrNew,
+    ...available.filter((signal) => !changedOrNew.includes(signal)),
+  ]
     .sort(
       (left, right) =>
         (left.aiReviewCount ?? 0) - (right.aiReviewCount ?? 0) ||
@@ -506,12 +518,6 @@ async function discoverCandidatesWithAi(
         right.updatedAt.localeCompare(left.updatedAt),
     )
     .slice(0, config.discoveryAiSignalLimit);
-  if (selected.length < 2) {
-    return {
-      candidates: [] as AutomaticCandidate[],
-      reviewedSignalIds: [] as string[],
-    };
-  }
 
   const context = selected.map((signal) => ({
     id: signal.id,
@@ -556,7 +562,9 @@ ${JSON.stringify(context)}
         0,
         config.discoveryMaxCandidatesPerRun,
       ),
-      reviewedSignalIds: selected.map((signal) => signal.id),
+      reviewedSignalIds: selected
+        .filter((signal) => changedOrNew.includes(signal))
+        .map((signal) => signal.id),
     };
   } catch (error) {
     ledger.settle(

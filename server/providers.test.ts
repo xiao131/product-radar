@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Opportunity } from "../shared/types.js";
+import { createDatabase } from "./db.js";
 import { createTestConfig } from "./test-config.js";
-import { DataForSeoProvider, estimateResearchCost } from "./providers.js";
+import {
+  DataForSeoProvider,
+  estimateResearchCost,
+  persistEvidence,
+} from "./providers.js";
 
 function opportunity(id: string, name: string): Opportunity {
   return {
@@ -79,7 +84,7 @@ describe("DataForSeoProvider", () => {
     });
     expect(estimateResearchCost([opportunity("web", "Web Tool")], config)).toEqual({
       taskUnits: 4,
-      estimatedCostUsd: 0.184,
+      estimatedCostUsd: 0.07332,
     });
     expect(
       estimateResearchCost(
@@ -97,10 +102,10 @@ describe("DataForSeoProvider", () => {
         config,
         "standard",
       ),
-    ).toEqual({ taskUnits: 10, estimatedCostUsd: 0.1328 });
+    ).toEqual({ taskUnits: 10, estimatedCostUsd: 0.07956 });
   });
 
-  it("collects multiple opportunities in one live task", async () => {
+  it("collects multiple opportunities in one low-cost Labs task", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       response({
         status_code: 20000,
@@ -108,10 +113,18 @@ describe("DataForSeoProvider", () => {
           {
             status_code: 20000,
             status_message: "Ok.",
-            result: [
-              searchResult("first tool", 1000),
-              searchResult("second tool", 2000),
-            ],
+            result: [{
+              items: [
+                {
+                  keyword: "first tool",
+                  keyword_info: searchResult("first tool", 1000),
+                },
+                {
+                  keyword: "second tool",
+                  keyword_info: searchResult("second tool", 2000),
+                },
+              ],
+            }],
           },
         ],
       }),
@@ -126,7 +139,7 @@ describe("DataForSeoProvider", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toMatch(/search_volume\/live$/);
+    expect(url).toMatch(/dataforseo_labs\/google\/keyword_overview\/live$/);
     expect(JSON.parse(String(init.body))[0].keywords).toEqual([
       "first tool",
       "second tool",
@@ -147,7 +160,14 @@ describe("DataForSeoProvider", () => {
             {
               status_code: 20000,
               status_message: "Ok.",
-              result: [searchResult("bilingual tool", 1200)],
+              result: [{
+                items: [
+                  {
+                    keyword: "bilingual tool",
+                    keyword_info: searchResult("bilingual tool", 1200),
+                  },
+                ],
+              }],
             },
           ],
         }),
@@ -157,6 +177,20 @@ describe("DataForSeoProvider", () => {
           status_code: 20000,
           tasks: [
             {
+              id: "cn-keywords",
+              status_code: 20100,
+              status_message: "Task Created.",
+              result: null,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          status_code: 20000,
+          tasks: [
+            {
+              id: "cn-keywords",
               status_code: 20000,
               status_message: "Ok.",
               result: [searchResult("bilingual tool", 600)],
@@ -166,6 +200,8 @@ describe("DataForSeoProvider", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
     const provider = new DataForSeoProvider("login", "password", {
+      standardPollIntervalMs: 1,
+      standardTimeoutMs: 100,
       markets: [
         {
           countryCode: "US",
@@ -192,7 +228,7 @@ describe("DataForSeoProvider", () => {
     const firstInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(JSON.parse(String(firstInit.body))[0]).toMatchObject(
       { location_code: 2840, language_code: "en" },
     );
@@ -238,6 +274,14 @@ describe("DataForSeoProvider", () => {
     const provider = new DataForSeoProvider("login", "password", {
       standardPollIntervalMs: 1,
       standardTimeoutMs: 100,
+      markets: [
+        {
+          countryCode: "CN",
+          locationCode: 2156,
+          keywordLanguageCode: "zh_CN",
+          searchLanguageCode: "zh-CN",
+        },
+      ],
     });
 
     const results = await provider.collectBatch(
@@ -263,7 +307,14 @@ describe("DataForSeoProvider", () => {
             {
               status_code: 20000,
               status_message: "Ok.",
-              result: [searchResult("cross platform tool", 1500)],
+              result: [{
+                items: [
+                  {
+                    keyword: "cross platform tool",
+                    keyword_info: searchResult("cross platform tool", 1500),
+                  },
+                ],
+              }],
             },
           ],
         }),
@@ -273,6 +324,20 @@ describe("DataForSeoProvider", () => {
           status_code: 20000,
           tasks: [
             {
+              id: "serp-task",
+              status_code: 20100,
+              status_message: "Task Created.",
+              result: null,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          status_code: 20000,
+          tasks: [
+            {
+              id: "serp-task",
               status_code: 20000,
               status_message: "Ok.",
               result: [
@@ -361,14 +426,17 @@ describe("DataForSeoProvider", () => {
     ]);
     const evidence = results.get(candidate.id) ?? [];
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(fetchMock.mock.calls[1]?.[0]).toMatch(
-      /serp\/google\/organic\/live\/advanced$/,
+      /serp\/google\/organic\/task_post$/,
     );
     expect(fetchMock.mock.calls[2]?.[0]).toMatch(
-      /app_data\/apple\/app_searches\/task_post$/,
+      /serp\/google\/organic\/task_get\/advanced\/serp-task$/,
     );
     expect(fetchMock.mock.calls[3]?.[0]).toMatch(
+      /app_data\/apple\/app_searches\/task_post$/,
+    );
+    expect(fetchMock.mock.calls[4]?.[0]).toMatch(
       /app_data\/apple\/app_searches\/task_get\/advanced\/apple-task$/,
     );
     expect(
@@ -386,5 +454,101 @@ describe("DataForSeoProvider", () => {
       evidence.find((item) => item.metric === "competitor_review_volume")
         ?.value,
     ).toBe(200);
+  });
+
+  it("routes by source market and reuses fresh paid evidence", async () => {
+    const database = createDatabase(":memory:", false);
+    const candidate = opportunity("cached", "Receipt Organizer");
+    database.prepare(
+      `INSERT INTO opportunities (
+         id, name, one_liner, target_user, source_type,
+         recommended_platform, verdict, research_status, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      candidate.id,
+      candidate.name,
+      candidate.oneLiner,
+      candidate.targetUser,
+      candidate.sourceType,
+      candidate.recommendedPlatform,
+      candidate.verdict,
+      candidate.researchStatus,
+      candidate.createdAt,
+      candidate.updatedAt,
+    );
+    database.prepare(
+      `INSERT INTO signals (
+         id, source_type, title, content, tags_json, status,
+         opportunity_id, market, source_name, metrics_json, created_at, updated_at
+       ) VALUES (?, 'SEARCH', ?, ?, '[]', 'PROCESSED', ?, 'US/en',
+                 'DataForSEO Labs Keyword Ideas', ?, ?, ?)`,
+    ).run(
+      crypto.randomUUID(),
+      "receipt organizer",
+      "Search demand is growing.",
+      candidate.id,
+      JSON.stringify({ searchVolume: 2400 }),
+      new Date().toISOString(),
+      new Date().toISOString(),
+    );
+    const config = createTestConfig({
+      researchProvider: "real",
+      researchMarkets: [
+        {
+          countryCode: "US",
+          locationCode: 2840,
+          keywordLanguageCode: "en",
+          searchLanguageCode: "en",
+        },
+        {
+          countryCode: "CN",
+          locationCode: 2156,
+          keywordLanguageCode: "zh_CN",
+          searchLanguageCode: "zh-CN",
+        },
+      ],
+    });
+    expect(estimateResearchCost([candidate], config, "standard", database))
+      .toEqual({ taskUnits: 1, estimatedCostUsd: 0.01212 });
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      response({
+        status_code: 20000,
+        tasks: [
+          {
+            status_code: 20000,
+            status_message: "Ok.",
+            result: [
+              {
+                items: [
+                  {
+                    keyword: "receipt organizer",
+                    keyword_info: searchResult("receipt organizer", 2400),
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new DataForSeoProvider("login", "password", {
+      markets: config.researchMarkets,
+      database,
+    });
+    const first = await provider.collectBatch([
+      { opportunity: candidate, version: 1 },
+    ]);
+    persistEvidence(database, first.get(candidate.id) ?? []);
+    const second = await provider.collectBatch([
+      { opportunity: candidate, version: 2 },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(second.get(candidate.id)).toHaveLength(3);
+    expect(estimateResearchCost([candidate], config, "standard", database))
+      .toEqual({ taskUnits: 0, estimatedCostUsd: 0 });
+    database.close();
   });
 });

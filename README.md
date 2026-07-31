@@ -220,11 +220,12 @@ AI_MODEL=openai/gpt-5.6-terra
 - 自动发现：DataForSEO Labs Keyword Ideas（美国英文市场）；
 - 自动发现：Google Standard SERP（英文市场）和 Baidu Standard SERP（中国市场）；
 - 自动发现：Apple App Store 新上架免费 iOS App；
-- Google Ads 月搜索量；
+- DataForSEO Labs Keyword Overview 英文搜索量、趋势、CPC 和搜索意图；
+- Google Ads Standard 中文市场搜索量；
 - 过去月份搜索序列变化；
 - 广告竞争指数；
 - CPC 商业意图；
-- Google Organic SERP 竞品域名与结果密度；
+- Google/Baidu Standard SERP 竞品域名与结果密度；
 - Apple App Search 竞品、评分与评论量；
 - 手工、CSV、Reddit、App Review 等信号原文；
 - 三阶段 AI 结构化判断。
@@ -242,10 +243,16 @@ DataForSEO 产品的简体中文代码不同，因此配置中同时保留两种
 `REAL` 模式但凭据不完整时，服务会拒绝启动，避免在你不知情的情况下回退到
 Demo。
 
-为控制真实模式成本，自动发现不调用 Google Ads Live Search Volume，也不把
-Content Analysis 放进每日循环。Labs 的多个种子词放在同一个请求里；同一市场
-的最多 8 个 Standard SERP 任务也在一个 POST 批次中提交，不会逐关键词发送
-HTTP 请求。一个中英文完整发现批次预计约 `$0.036`。
+为控制真实模式成本，普通调研和自动发现都不使用 Google Ads Live。
+英文候选优先使用可一次提交数百个关键词的 Labs Keyword Overview；中文市场
+使用 Google Ads Standard；竞品搜索使用 Google/Baidu Standard SERP。系统会优先
+使用候选所关联信号的市场和需求关键词，只在没有市场证据时才覆盖所有配置市场。
+
+付费数据按数据本身的更新速度缓存：关键词 30 天、竞品 SERP 14 天、App Store
+30 天。自动发现中，Labs 每 30 天最多购买一次，痛点 SERP 每 3 天、App Store
+新品每天最多一次。调度器仍每天运行，但只购买已过期的数据源。首个中英文
+完整发现批次约 `$0.036`；默认稳态发现成本约 `$0.20/月`，以 DataForSEO
+实际返回的 cost 为准。
 
 付费采集与 AI 聚类是两个可恢复阶段：数据入库后立即记录 `COLLECTED`；如果 AI
 中转超时或失败，当天手工重试只会复用已购买的数据，不会再次调用 DataForSEO。
@@ -257,11 +264,11 @@ HTTP 请求。一个中英文完整发现批次预计约 `$0.036`。
 `MAX_DATAFORSEO_COST_PER_DAY_USD` 和月度美元上限仍是不可绕过的硬限制，自动任务
 也不会使用人工确认额度。
 
-完整调研默认复用 7 天内的结果。详情页的“检查并更新”会优先命中缓存；只有确认
-“强制实时刷新”时才会忽略新鲜度保护。雷达库的“更新到期数据”会把最多 1000
-个到期候选放进低成本 Standard 批次；每个市场共享一批关键词，Web 和 App
-竞品任务仍按候选与市场计费。手工自动发现形成候选后，也会自动排队同样的
-Standard 批量调研。每日 AI 和 DataForSEO 使用量由 SQLite 持久化，
+调研结果按决策价值动态刷新：`BUILD_NOW` 7 天、`VALIDATE_FIRST` 14 天、
+`WATCH` 30 天、`SKIP` 90 天；出现新用户信号时仍会立即重新判断。详情页的
+“检查并更新”会优先命中缓存；“强制刷新”才会忽略该候选的付费数据缓存。
+真实模式下，手动调研会立即返回并在后台进入 Standard 批量队列，不会让浏览器请求
+等待几个小时。每日 AI 和 DataForSEO 使用量由 SQLite 持久化，
 服务重启不会清空。
 每日预算和定时小时都以服务器本地时区计算，部署时应明确设置服务器的
 `TZ`，例如 `Asia/Shanghai`。
@@ -291,6 +298,9 @@ npm run research:batch
 | `SESSION_SECRET` | 空 | 生产鉴权必需 | 至少 32 字符的会话签名密钥 |
 | `RESEARCH_PROVIDER` | `demo` | 生产必需 | 生产环境必须显式选择 `demo` 或 `real` |
 | `RESEARCH_FRESHNESS_DAYS` | `7` | 否 | 新鲜期内复用调研结果，避免重复付费 |
+| `RESEARCH_KEYWORD_CACHE_DAYS` | `30` | 否 | 搜索量、趋势和 CPC 付费证据缓存天数 |
+| `RESEARCH_SERP_CACHE_DAYS` | `14` | 否 | Web 竞品 SERP 证据缓存天数 |
+| `RESEARCH_APP_CACHE_DAYS` | `30` | 否 | App Store 竞品证据缓存天数 |
 | `RESEARCH_RATE_LIMIT_PER_HOUR` | `30` | 否 | 单个客户端每小时最多发起的调研请求 |
 | `MAX_AI_RUNS_PER_DAY` | `30` | 否 | 每日最多 AI 调研流水线次数 |
 | `MAX_DATAFORSEO_TASKS_PER_DAY` | `100` | 否 | 每日最多 DataForSEO 计费子任务数；一次批量 POST 可包含多个子任务 |
@@ -312,7 +322,10 @@ npm run research:batch
 | `AI_DISABLE_RESPONSE_STORAGE` | `true` | 否 | 为 `true` 时向 Responses API 发送 `store=false` |
 | `AUTO_DISCOVERY_ENABLED` | 真实模式为 `true` | 否 | 启用互联网/API 自动发现候选 |
 | `DISCOVERY_LABS_LIMIT` | `100` | 否 | 单个支持市场每次 Labs 候选关键词上限 |
-| `DISCOVERY_SERP_QUERIES_PER_MARKET` | `8` | 否 | 每市场每日痛点搜索查询数；设为 `0` 可关闭 |
+| `DISCOVERY_LABS_FRESHNESS_DAYS` | `30` | 否 | Labs 发现数据每市场最短重购间隔 |
+| `DISCOVERY_SERP_QUERIES_PER_MARKET` | `8` | 否 | 每市场每个 SERP 发现批次的痛点查询数；设为 `0` 可关闭 |
+| `DISCOVERY_SERP_FRESHNESS_DAYS` | `3` | 否 | 痛点 SERP 每市场最短重购间隔 |
+| `DISCOVERY_APP_FRESHNESS_DAYS` | `1` | 否 | App Store 新品每市场最短重购间隔 |
 | `DISCOVERY_APP_DEPTH` | `100` | 否 | 每市场 App Store 新品扫描深度；设为 `0` 可关闭 |
 | `DISCOVERY_MAX_CANDIDATES_PER_RUN` | `5` | 否 | 每次最多由 AI 新增或更新的候选数 |
 | `DISCOVERY_AI_SIGNAL_LIMIT` | `120` | 否 | 每次交给 AI 聚类的高优先级信号数 |
@@ -760,7 +773,7 @@ npm run backup:restore -- \
 - [ ] 独立 DataForSEO Trends endpoint；
 - [ ] Apple App Store 竞品完整差评主题；
 - [ ] 合规的 Reddit / X 数据连接器；
-- [x] 每日自动采集与重新评分；
+- [x] 每日调度、按数据源新鲜度自动采集与重新评分；
 - [x] 持久化任务锁、重试与状态记录；
 - [x] 单用户登录、CSRF 与 API 限流；
 - [ ] 编译后的纯 Node 运行环境与 Docker 部署；

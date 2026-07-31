@@ -14,6 +14,7 @@ import {
   mapSignal,
 } from "./mappers.js";
 import {
+  isOpportunityResearchDue,
   ResearchInProgressError,
   researchOpportunity,
 } from "./research.js";
@@ -70,7 +71,7 @@ const researchRequestSchema = z.object({
 });
 
 const batchResearchRequestSchema = z.object({
-  delivery: z.enum(["standard", "live"]).default("standard"),
+  delivery: z.literal("standard").default("standard"),
 });
 
 const opportunityOptionsQuerySchema = z.object({
@@ -188,19 +189,53 @@ export function configForManualOpportunityResearch(
       )
       .get(opportunityId),
   );
-  const freshnessCutoff = new Date(
-    Date.now() - config.researchFreshnessDays * 24 * 60 * 60 * 1_000,
-  ).toISOString();
   if (
     !force &&
     hasReport &&
-    opportunity.lastResearchedAt &&
-    opportunity.lastResearchedAt >= freshnessCutoff
+    !isOpportunityResearchDue(opportunity, config.researchFreshnessDays)
   ) {
     return config;
   }
 
-  const estimate = estimateResearchCost([opportunity], config, "live");
+  const dueOpportunities = (
+    db.prepare("SELECT * FROM opportunities").all() as Record<string, unknown>[]
+  )
+    .map(mapOpportunity)
+    .filter(
+      (candidate) =>
+        candidate.id === opportunity.id ||
+        isOpportunityResearchDue(candidate, config.researchFreshnessDays),
+    );
+  const estimate = force
+    ? (() => {
+        const target = estimateResearchCost(
+          [opportunity],
+          config,
+          "standard",
+          db,
+          true,
+        );
+        const remaining = estimateResearchCost(
+          dueOpportunities.filter(
+            (candidate) => candidate.id !== opportunity.id,
+          ),
+          config,
+          "standard",
+          db,
+        );
+        return {
+          taskUnits: target.taskUnits + remaining.taskUnits,
+          estimatedCostUsd: Number(
+            (target.estimatedCostUsd + remaining.estimatedCostUsd).toFixed(6),
+          ),
+        };
+      })()
+    : estimateResearchCost(
+        dueOpportunities,
+        config,
+        "standard",
+        db,
+      );
   if (!estimate.taskUnits) return config;
   const usage = new UsageLedger(db, config).today().dataForSeo;
   const projectedCostUsd = Number(
@@ -572,6 +607,32 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
           input.force,
           input.confirmTaskBudgetOverride,
         );
+        const opportunityRow = db
+          .prepare("SELECT * FROM opportunities WHERE id = ?")
+          .get(String(request.params.id)) as Record<string, unknown>;
+        const opportunity = mapOpportunity(opportunityRow);
+        if (
+          executionConfig.researchProvider === "real" &&
+          (input.force ||
+            isOpportunityResearchDue(
+              opportunity,
+              executionConfig.researchFreshnessDays,
+            ))
+        ) {
+          const job = startResearchJob(
+            db,
+            executionConfig,
+            "manual",
+            "standard",
+            input.force ? [opportunity.id] : [],
+          );
+          response.status(202).json({
+            queued: true,
+            jobId: job.jobId,
+            status: job.status,
+          });
+          return;
+        }
         const execution = await researchOpportunity(
           db,
           String(request.params.id),
@@ -595,6 +656,20 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     async (request, response, next) => {
       try {
         const input = batchResearchRequestSchema.parse(request.body ?? {});
+        if (config.researchProvider === "real") {
+          const job = startResearchJob(
+            db,
+            config,
+            "manual",
+            "standard",
+          );
+          response.status(202).json({
+            queued: true,
+            jobId: job.jobId,
+            status: job.status,
+          });
+          return;
+        }
         const job = await runResearchJob(
           db,
           config,
@@ -609,24 +684,26 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
   );
 
   app.get("/api/operations/status", (_request, response) => {
-    const cutoff = new Date(
-      Date.now() - config.researchFreshnessDays * 24 * 60 * 60 * 1_000,
-    ).toISOString();
     const freshness = db
       .prepare(
         `SELECT
-           SUM(CASE WHEN last_researched_at IS NULL OR last_researched_at < ? THEN 1 ELSE 0 END) AS due,
            SUM(CASE WHEN research_status = 'RUNNING' THEN 1 ELSE 0 END) AS running,
            SUM(CASE WHEN research_status = 'FAILED' THEN 1 ELSE 0 END) AS failed,
            MAX(last_researched_at) AS latest_research_at
          FROM opportunities`,
       )
-      .get(cutoff) as {
-      due: number | null;
+      .get() as {
       running: number | null;
       failed: number | null;
       latest_research_at: string | null;
     };
+    const due = (
+      db.prepare("SELECT * FROM opportunities").all() as Record<string, unknown>[]
+    )
+      .map(mapOpportunity)
+      .filter((opportunity) =>
+        isOpportunityResearchDue(opportunity, config.researchFreshnessDays),
+      ).length;
     const jobs = db
       .prepare(
         `SELECT id, job_type, trigger_type, status, error, started_at, finished_at
@@ -713,7 +790,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         ),
       },
       freshness: {
-        due: Number(freshness.due ?? 0),
+        due,
         running: Number(freshness.running ?? 0),
         failed: Number(freshness.failed ?? 0),
         latestResearchAt: freshness.latest_research_at,
