@@ -195,6 +195,8 @@ export interface Signal {
   metrics?: Record<string, unknown>;
   discoveryRunId?: string | null;
   autoCollected?: boolean;
+  canonicalKey?: string | null;
+  duplicateCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -223,7 +225,6 @@ export interface DashboardData {
     opportunities: number;
     buildNow: number;
     unresearched: number;
-    signalsWaiting: number;
     liveProducts: number;
   };
 }
@@ -264,6 +265,8 @@ export interface OperationsStatus {
       limit: number;
       reportedCostUsd: number;
       dailyCostLimitUsd: number;
+      discoveryCostUsd: number;
+      discoveryCostLimitUsd: number;
       monthlyCostUsd: number;
       monthlyCostLimitUsd: number;
     };
@@ -281,6 +284,7 @@ export interface OperationsStatus {
     collectedSignals: number;
     createdCandidates: number;
     refreshedCandidates: number;
+    collectionReused: boolean;
   };
   jobs: Array<{
     id: string;

@@ -8,11 +8,17 @@ export class UsageBudgetExceededError extends Error {
   constructor(
     public readonly provider: UsageProvider,
     public readonly limit: number,
-    public readonly budgetType: "units" | "daily_cost" | "monthly_cost" = "units",
+    public readonly budgetType:
+      | "units"
+      | "daily_cost"
+      | "discovery_cost"
+      | "monthly_cost" = "units",
   ) {
     super(
       budgetType === "daily_cost"
         ? `今日 DataForSEO 费用将超过 $${limit.toFixed(2)} 上限`
+        : budgetType === "discovery_cost"
+          ? `今日自动发现费用将超过 $${limit.toFixed(2)} 上限，已在请求前停止`
         : budgetType === "monthly_cost"
           ? `本月 DataForSEO 费用将超过 $${limit.toFixed(2)} 上限`
           : provider === "AI"
@@ -76,6 +82,27 @@ export class UsageLedger {
       };
       const used = Number(usage.daily_units);
       const reservedCost = Math.max(0, estimatedCostUsd);
+      if (provider === "DATAFORSEO" && operation.startsWith("discovery_")) {
+        const discoveryUsage = this.db
+          .prepare(
+            `SELECT COALESCE(SUM(cost_usd), 0) AS cost_usd
+             FROM usage_events
+             WHERE provider = 'DATAFORSEO'
+               AND operation LIKE 'discovery_%'
+               AND created_at >= ?`,
+          )
+          .get(startOfLocalDay()) as { cost_usd: number };
+        if (
+          Number(discoveryUsage.cost_usd) + reservedCost >
+          this.config.maxDataForSeoDiscoveryCostPerDayUsd
+        ) {
+          throw new UsageBudgetExceededError(
+            provider,
+            this.config.maxDataForSeoDiscoveryCostPerDayUsd,
+            "discovery_cost",
+          );
+        }
+      }
       if (
         provider === "DATAFORSEO" &&
         Number(usage.daily_cost) + reservedCost >
@@ -178,6 +205,15 @@ export class UsageLedger {
          WHERE provider = 'DATAFORSEO' AND created_at >= ?`,
       )
       .get(startOfLocalMonth()) as { cost_usd: number };
+    const dailyDiscoveryDataForSeo = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(cost_usd), 0) AS cost_usd
+         FROM usage_events
+         WHERE provider = 'DATAFORSEO'
+           AND operation LIKE 'discovery_%'
+           AND created_at >= ?`,
+      )
+      .get(startOfLocalDay()) as { cost_usd: number };
     return {
       ai: {
         used: Number(ai?.units ?? 0),
@@ -190,6 +226,11 @@ export class UsageLedger {
         limit: this.config.maxDataForSeoTasksPerDay,
         reportedCostUsd: Number(dataForSeo?.cost_usd ?? 0),
         dailyCostLimitUsd: this.config.maxDataForSeoCostPerDayUsd,
+        discoveryCostUsd: Number(
+          dailyDiscoveryDataForSeo.cost_usd ?? 0,
+        ),
+        discoveryCostLimitUsd:
+          this.config.maxDataForSeoDiscoveryCostPerDayUsd,
         monthlyCostUsd: Number(monthlyDataForSeo.cost_usd ?? 0),
         monthlyCostLimitUsd: this.config.maxDataForSeoCostPerMonthUsd,
       },

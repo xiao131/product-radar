@@ -40,6 +40,7 @@ export function createTestConfig(
     maxAiRunsPerDay: 30,
     maxDataForSeoTasksPerDay: 100,
     maxDataForSeoCostPerDayUsd: 0.5,
+    maxDataForSeoDiscoveryCostPerDayUsd: 0.05,
     maxDataForSeoCostPerMonthUsd: 10,
     dataForSeoBatchPollIntervalMs: 1,
     dataForSeoBatchTimeoutMs: 100,

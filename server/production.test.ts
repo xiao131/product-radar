@@ -185,6 +185,36 @@ describe("production decision and budgets", () => {
     database.close();
   });
 
+  it("stops a second automatic discovery batch before transmission", () => {
+    const database: RadarDatabase = createDatabase(":memory:", false);
+    const config = createTestConfig({
+      maxDataForSeoCostPerDayUsd: 1,
+      maxDataForSeoDiscoveryCostPerDayUsd: 0.05,
+    });
+    const ledger = new UsageLedger(database, config);
+    ledger.reserve(
+      "DATAFORSEO",
+      "discovery_first_batch",
+      1,
+      {},
+      0.036,
+    );
+    expect(() =>
+      ledger.reserve(
+        "DATAFORSEO",
+        "discovery_second_batch",
+        1,
+        {},
+        0.02,
+      ),
+    ).toThrow(UsageBudgetExceededError);
+    expect(ledger.today().dataForSeo).toMatchObject({
+      discoveryCostUsd: 0.036,
+      discoveryCostLimitUsd: 0.05,
+    });
+    database.close();
+  });
+
   it("downgrades a build-now verdict when evidence coverage is weak", () => {
     const guarded = applyEvidenceSufficiencyGuard(
       "BUILD_NOW",

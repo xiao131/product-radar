@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDatabase } from "./db.js";
 import {
   normalizeDiscoveryKey,
+  discoveryCollectionForToday,
   persistDiscoveredSignals,
   persistDiscoveryCandidates,
   refreshChangedLinkedSignalEvidence,
@@ -146,6 +147,50 @@ describe("automatic discovery persistence", () => {
       persisted.signals,
     );
     expect(saved).toMatchObject({ created: 0, refreshed: 0, skipped: 1 });
+    database.close();
+  });
+
+  it("merges repeated automatic evidence by stable identity", () => {
+    const database = createDatabase(":memory:", false);
+    const persisted = persistDiscoveredSignals(database, "run-dedupe", [
+      {
+        ...inputs[1],
+        fingerprint: "complaint-copy-a",
+        sourceName: "DataForSEO Google SERP",
+      },
+      {
+        ...inputs[1],
+        fingerprint: "complaint-copy-b",
+        sourceName: "DataForSEO Community Search",
+        sourceUrl: "https://example.com/a-copy",
+      },
+    ]);
+    expect(persisted).toMatchObject({ inserted: 1, reused: 1 });
+    expect(persisted.signals).toHaveLength(1);
+    expect(persisted.signals[0]).toMatchObject({
+      duplicateCount: 2,
+      autoCollected: true,
+    });
+    expect(persisted.signals[0].metrics?.sourceNames).toEqual([
+      "DataForSEO Google SERP",
+      "DataForSEO Community Search",
+    ]);
+    database.close();
+  });
+
+  it("treats an existing paid discovery attempt as reusable collection", () => {
+    const database = createDatabase(":memory:", false);
+    database
+      .prepare(
+        `INSERT INTO usage_events (
+           id, provider, operation, units, cost_usd, metadata_json, created_at
+         ) VALUES (?, 'DATAFORSEO', 'discovery_keyword_ideas', 1, 0.024, '{}', ?)`,
+      )
+      .run(crypto.randomUUID(), new Date().toISOString());
+    expect(discoveryCollectionForToday(database)).toMatchObject({
+      collectionCompleted: true,
+      collectedSignals: 0,
+    });
     database.close();
   });
 });

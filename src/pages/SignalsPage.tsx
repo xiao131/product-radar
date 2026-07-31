@@ -28,6 +28,12 @@ function metricValue(value: unknown) {
   return JSON.stringify(value);
 }
 
+function visibleMetricEntries(metrics: Record<string, unknown> | undefined) {
+  return Object.entries(metrics ?? {}).filter(
+    ([key]) => !key.startsWith("_"),
+  );
+}
+
 export function SignalsPage() {
   const [signals, setSignals] = useState<Paginated<Signal> | null>(null);
   const [page, setPage] = useState(1);
@@ -125,15 +131,17 @@ export function SignalsPage() {
   }
 
   if (error) return <ErrorState message={error} retry={load} />;
-  if (!signals) return <LoadingState label="正在读取信号收件箱" />;
+  if (!signals) return <LoadingState label="正在读取原始证据" />;
 
   return (
     <div>
       <section className="signal-actions">
         <div>
-          <span className="eyebrow">RAW INPUT → OPPORTUNITY</span>
-          <h2>所有灵感先进入收件箱</h2>
-          <p>先保留原始上下文，再决定是否转成候选；一条信号不是结论。</p>
+          <span className="eyebrow">AUDITABLE EVIDENCE</span>
+          <h2>证据由系统归并，不需要逐条处理</h2>
+          <p>
+            自动采集内容会先去重，再由 AI 聚类成候选产品；这里仅用于追溯来源和补充手工线索。
+          </p>
         </div>
         <div>
           <input
@@ -173,20 +181,30 @@ export function SignalsPage() {
                 {signal.autoCollected && (
                   <small className="signal-auto-badge">AUTO</small>
                 )}
+                {(signal.duplicateCount ?? 1) > 1 && (
+                  <small className="signal-auto-badge">
+                    已合并 {signal.duplicateCount} 条
+                  </small>
+                )}
                 <small>{shortDate(signal.createdAt)}</small>
               </div>
               <div className="signal-card__body">
                 <div>
                   <strong>{signal.title}</strong>
                   <span className={`signal-status signal-status--${signal.status.toLowerCase()}`}>
-                    {signal.status === "NEW" ? "待处理" : signal.status === "PROCESSED" ? "已转候选" : "已归档"}
+                    {signal.status === "ARCHIVED"
+                      ? "已归档"
+                      : signal.opportunityId
+                        ? "已归并候选"
+                        : signal.autoCollected
+                          ? "等待 AI 归并"
+                          : "待判断"}
                   </span>
                 </div>
                 <p>{signal.content}</p>
-                {signal.metrics &&
-                  Object.keys(signal.metrics).length > 0 && (
+                {visibleMetricEntries(signal.metrics).length > 0 && (
                     <dl className="signal-metrics">
-                      {Object.entries(signal.metrics).map(([key, value]) => (
+                      {visibleMetricEntries(signal.metrics).map(([key, value]) => (
                         <div key={key}>
                           <dt>{key}</dt>
                           <dd>{metricValue(value)}</dd>
@@ -205,6 +223,10 @@ export function SignalsPage() {
                   <button className="button button--secondary button--small" onClick={() => navigate(`/radar/${signal.opportunityId}`)}>
                     查看候选 <ArrowRight size={14} />
                   </button>
+                ) : signal.autoCollected ? (
+                  <span className="muted-copy">
+                    系统将在下一次 AI 判断时自动归并
+                  </span>
                 ) : (
                   <div className="signal-card__button-stack">
                     <button
@@ -252,9 +274,9 @@ export function SignalsPage() {
         </>
       ) : (
         <EmptyState
-          title="还没有原始信号"
-          description="真实模式会按计划自动采集；你也可以先录入产品点子或粘贴真实用户抱怨。"
-          action={<button className="button button--primary" onClick={() => setModalOpen(true)}>添加第一条信号</button>}
+          title="还没有原始证据"
+          description="真实模式会按计划自动采集；你也可以补充产品点子或真实用户抱怨。"
+          action={<button className="button button--primary" onClick={() => setModalOpen(true)}>添加第一条线索</button>}
         />
       )}
 

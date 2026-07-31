@@ -1,4 +1,4 @@
-import { ArrowRight, Boxes, Inbox, Radar, Target } from "lucide-react";
+import { ArrowRight, Boxes, Radar, Target } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { DashboardData } from "../../shared/types";
 import { api } from "../api";
@@ -59,7 +59,19 @@ export function DashboardPage() {
               </button>
             </>
           ) : (
-            <p>还没有可推荐的候选。</p>
+            <>
+              <h2>尚未形成值得开发的结论</h2>
+              <p className="decision-hero__promise">
+                系统会在后台归并采集到的证据，并由 AI 筛选成候选产品。
+              </p>
+              <button
+                className="button button--ink"
+                onClick={() => navigate("/operations")}
+              >
+                查看处理进度
+                <ArrowRight size={16} />
+              </button>
+            </>
           )}
         </div>
         <div className="decision-hero__aside">
@@ -70,10 +82,6 @@ export function DashboardPage() {
             <div>
               <b>{data.stats.buildNow}</b>
               <span>现在开发</span>
-            </div>
-            <div>
-              <b>{data.stats.signalsWaiting}</b>
-              <span>待处理信号</span>
             </div>
             <div>
               <b>{data.stats.liveProducts}</b>
@@ -157,11 +165,11 @@ export function DashboardPage() {
               </div>
             </button>
           ))}
-          <button className="product-strip__signal" onClick={() => navigate("/signals")}>
-            <Inbox size={18} />
+          <button className="product-strip__signal" onClick={() => navigate("/radar")}>
+            <Radar size={18} />
             <div>
-              <strong>{data.stats.signalsWaiting} 条信号等待处理</strong>
-              <span>把抱怨变成下一批候选</span>
+              <strong>继续比较全部候选产品</strong>
+              <span>按评分和最新变化决定下一步</span>
             </div>
             <ArrowRight size={15} />
           </button>

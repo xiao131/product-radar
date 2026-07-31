@@ -255,7 +255,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         enabled: config.autoDiscoveryEnabled,
         maxCandidatesPerRun: config.discoveryMaxCandidatesPerRun,
         signalLimit: config.discoveryAiSignalLimit,
-        dailyCostLimitUsd: config.maxDataForSeoCostPerDayUsd,
+        dailyCostLimitUsd:
+          config.maxDataForSeoDiscoveryCostPerDayUsd,
         monthlyCostLimitUsd: config.maxDataForSeoCostPerMonthUsd,
       },
       market: {
@@ -307,9 +308,6 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         ),
         unresearched: scalar(
           "SELECT COUNT(*) AS count FROM opportunities WHERE research_status = 'UNRESEARCHED'",
-        ),
-        signalsWaiting: scalar(
-          "SELECT COUNT(*) AS count FROM signals WHERE status = 'NEW'",
         ),
         liveProducts: scalar(
           "SELECT COUNT(*) AS count FROM products WHERE status = 'LIVE'",
@@ -636,6 +634,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         refreshedCandidates: Number(
           discoveryResult.refreshedCandidates ?? 0,
         ),
+        collectionReused: Boolean(discoveryResult.collectionReused),
       },
       jobs: jobs.map((job) => ({
         id: job.id,

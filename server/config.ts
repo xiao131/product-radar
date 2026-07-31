@@ -51,6 +51,7 @@ export interface AppConfig {
   maxAiRunsPerDay: number;
   maxDataForSeoTasksPerDay: number;
   maxDataForSeoCostPerDayUsd: number;
+  maxDataForSeoDiscoveryCostPerDayUsd: number;
   maxDataForSeoCostPerMonthUsd: number;
   dataForSeoBatchPollIntervalMs: number;
   dataForSeoBatchTimeoutMs: number;
@@ -316,6 +317,10 @@ export function loadConfig(): AppConfig {
     maxDataForSeoCostPerDayUsd: nonNegativeNumber(
       process.env.MAX_DATAFORSEO_COST_PER_DAY_USD,
       0.5,
+    ),
+    maxDataForSeoDiscoveryCostPerDayUsd: nonNegativeNumber(
+      process.env.MAX_DATAFORSEO_DISCOVERY_COST_PER_DAY_USD,
+      0.05,
     ),
     maxDataForSeoCostPerMonthUsd: nonNegativeNumber(
       process.env.MAX_DATAFORSEO_COST_PER_MONTH_USD,

@@ -14,7 +14,7 @@ function localDayStart() {
   return date.toISOString();
 }
 
-function completedToday(
+export function hasCompletedJobToday(
   db: RadarDatabase,
   jobType: "DISCOVERY" | "RESEARCH" | "BACKUP",
 ) {
@@ -25,6 +25,23 @@ function completedToday(
          FROM job_runs
          WHERE job_type = ?
            AND status = 'COMPLETED'
+           AND started_at >= ?
+         LIMIT 1`,
+      )
+      .get(jobType, localDayStart()),
+  );
+}
+
+export function hasAttemptedJobToday(
+  db: RadarDatabase,
+  jobType: "DISCOVERY" | "RESEARCH" | "BACKUP",
+) {
+  return Boolean(
+    db
+      .prepare(
+        `SELECT 1
+         FROM job_runs
+         WHERE job_type = ?
            AND started_at >= ?
          LIMIT 1`,
       )
@@ -44,20 +61,20 @@ export function startScheduler(db: RadarDatabase, config: AppConfig) {
       const hour = new Date().getHours();
       if (
         hour >= config.schedulerBackupHour &&
-        !completedToday(db, "BACKUP")
+        !hasCompletedJobToday(db, "BACKUP")
       ) {
         await runBackupJob(db, config, "scheduled");
       }
       if (
         config.autoDiscoveryEnabled &&
         hour >= config.schedulerDiscoveryHour &&
-        !completedToday(db, "DISCOVERY")
+        !hasAttemptedJobToday(db, "DISCOVERY")
       ) {
         await runDiscoveryJob(db, config, "scheduled");
       }
       if (
         hour >= config.schedulerResearchHour &&
-        !completedToday(db, "RESEARCH")
+        !hasCompletedJobToday(db, "RESEARCH")
       ) {
         await runResearchJob(db, config, "scheduled", "standard");
       }

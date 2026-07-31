@@ -124,24 +124,28 @@ export function OperationsPage() {
             {status.discovery.collectedSignals} 信号 · +
             {status.discovery.createdCandidates}/
             {status.discovery.refreshedCandidates} 更新
+            {status.discovery.collectionReused ? " · 复用采集" : ""}
           </strong>
         </div>
         <div>
           <DatabaseZap size={18} />
           <span>
-            今日 DataForSEO · {status.usage.dataForSeo.used}/
-            {status.usage.dataForSeo.limit} tasks
+            今日自动发现 · 付费采集最多一次
           </span>
           <strong>
-            ${status.usage.dataForSeo.reportedCostUsd.toFixed(3)}/$
-            {status.usage.dataForSeo.dailyCostLimitUsd.toFixed(2)}
+            ${status.usage.dataForSeo.discoveryCostUsd.toFixed(3)}/$
+            {status.usage.dataForSeo.discoveryCostLimitUsd.toFixed(2)}
           </strong>
         </div>
         <div>
           <DatabaseZap size={18} />
-          <span>本月 DataForSEO</span>
+          <span>
+            DataForSEO 全部 · 今日 $
+            {status.usage.dataForSeo.reportedCostUsd.toFixed(3)}/$
+            {status.usage.dataForSeo.dailyCostLimitUsd.toFixed(2)}
+          </span>
           <strong>
-            ${status.usage.dataForSeo.monthlyCostUsd.toFixed(2)}/$
+            本月 ${status.usage.dataForSeo.monthlyCostUsd.toFixed(2)}/$
             {status.usage.dataForSeo.monthlyCostLimitUsd.toFixed(2)}
           </strong>
         </div>

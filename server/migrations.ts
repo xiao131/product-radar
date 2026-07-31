@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { consolidateAutomaticSignalDuplicates } from "./signal-dedupe.js";
 
 interface Migration {
   version: number;
@@ -220,6 +221,22 @@ const migrations: Migration[] = [
         CREATE UNIQUE INDEX IF NOT EXISTS idx_opportunity_discovery_key
           ON opportunities(discovery_key)
           WHERE discovery_key IS NOT NULL;
+      `);
+    },
+  },
+  {
+    version: 4,
+    name: "cost safe discovery signal identity",
+    up(db) {
+      db.exec(`
+        ALTER TABLE signals ADD COLUMN canonical_key TEXT;
+        ALTER TABLE signals ADD COLUMN duplicate_count INTEGER NOT NULL DEFAULT 1;
+      `);
+      consolidateAutomaticSignalDuplicates(db);
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_canonical_key
+          ON signals(canonical_key)
+          WHERE canonical_key IS NOT NULL;
       `);
     },
   },

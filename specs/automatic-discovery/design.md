@@ -9,7 +9,7 @@ Daily scheduler
        ├─ Standard SERP queries (pain language and public discussions)
        └─ App Store new/top apps (iOS market movement)
             ↓
-       fingerprinted Signals
+       canonicalized, deduplicated Signals
             ↓
        AI cluster + noise rejection + dedupe key
             ↓
@@ -33,21 +33,22 @@ billed request and settles the reservation with the returned task cost.
 
 ### `discovery.ts`
 
-Persists fingerprinted signals, builds a bounded untrusted-data snapshot for
+Persists canonicalized signals, builds a bounded untrusted-data snapshot for
 AI, validates structured candidate output, deduplicates by `discovery_key`, and
 links source signals to opportunities.
 
 ### `jobs.ts` and `scheduler.ts`
 
-Add a durable `DISCOVERY` job and lock. The daily order is backup, discovery,
-then research so newly generated candidates can be researched in the same
-cycle.
+Add a durable `DISCOVERY` job and lock. A scheduled discovery is attempted at
+most once per local day, even if its AI stage fails. Paid collection is
+persisted before AI clustering so a same-day manual retry is AI-only.
 
 ### `usage.ts`
 
 Treats one usage row as both reservation and measurement. Estimated cost is
 written during reservation and replaced by actual reported cost at settlement.
-Daily and calendar-month limits are checked transactionally before transmission.
+Discovery-specific daily, overall daily and calendar-month limits are checked
+transactionally before transmission.
 
 ## 3. Data Model
 
@@ -60,6 +61,10 @@ Migration 3 adds:
 - a unique partial index on opportunity discovery key.
 
 Existing `job_runs` stores global discovery runs with `job_type=DISCOVERY`.
+
+Migration 4 adds `signals.canonical_key` and `signals.duplicate_count`, safely
+consolidates historical automatic duplicates, and preserves merged provenance
+inside signal metrics.
 
 ## 4. Discovery Sources and Cost Choices
 
@@ -89,6 +94,10 @@ configured maximum candidate count. The system enforces:
 
 - Source failures produce warnings in the discovery result but do not erase
   successful source data.
+- Paid collection completion is saved before AI. AI failure cannot cause a
+  second same-day DataForSEO batch.
+- Automatic discovery has a separate `$0.05` daily cap in addition to the
+  overall provider limits.
 - A cost-limit exception stops further paid requests and is visible in job
   history.
 - Failed provider calls retain their conservative estimated reservation because

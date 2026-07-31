@@ -22,20 +22,23 @@ interface Settings {
   searchConfigured: boolean;
 }
 
-const navigation = [
-  { to: "/", label: "今日决策", icon: LayoutDashboard },
-  { to: "/radar", label: "雷达库", icon: Radar },
-  { to: "/products", label: "产品库", icon: Boxes },
-  { to: "/signals", label: "信号收件箱", icon: Inbox },
-  { to: "/operations", label: "系统状态", icon: Settings2 },
+const primaryNavigation = [
+  { to: "/", label: "今日结论", icon: LayoutDashboard },
+  { to: "/radar", label: "候选产品", icon: Radar },
+  { to: "/products", label: "我的产品", icon: Boxes },
+];
+
+const systemNavigation = [
+  { to: "/signals", label: "原始证据", icon: Inbox },
+  { to: "/operations", label: "运行状态", icon: Settings2 },
 ];
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
-  "/": { title: "今天，下一步做什么？", subtitle: "从全部机会中找出最值得投入的一件事。" },
-  "/radar": { title: "产品雷达库", subtitle: "完整保存每个候选、证据、评分与判断变化。" },
-  "/products": { title: "已上线与在建产品", subtitle: "让推荐考虑你已经拥有的产品资产。" },
-  "/signals": { title: "信号收件箱", subtitle: "把点子、抱怨与评论变成可调研的候选产品。" },
-  "/operations": { title: "生产运行状态", subtitle: "检查数据源、预算、任务、备份与证据新鲜度。" },
+  "/": { title: "今天，下一步做什么？", subtitle: "直接查看当前最值得开发的产品及判断依据。" },
+  "/radar": { title: "候选产品库", subtitle: "按评分比较所有候选、证据和判断变化。" },
+  "/products": { title: "我的产品", subtitle: "查看已上线与在建产品，让推荐避开重复建设。" },
+  "/signals": { title: "原始证据库", subtitle: "系统自动归并并保留可追溯来源；无需逐条处理。" },
+  "/operations": { title: "数据与运行状态", subtitle: "查看采集成本、任务、备份与证据新鲜度。" },
 };
 
 export function AppLayout({
@@ -84,8 +87,8 @@ export function AppLayout({
         </div>
 
         <nav className="sidebar__nav" aria-label="主导航">
-          <span className="nav-label">WORKSPACE</span>
-          {navigation.map((item) => {
+          <span className="nav-label">结果</span>
+          {primaryNavigation.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -93,6 +96,22 @@ export function AppLayout({
                 to={item.to}
                 end={item.to === "/"}
                 className={({ isActive }) => (isActive ? "nav-item nav-item--active" : "nav-item")}
+              >
+                <Icon size={17} strokeWidth={1.8} />
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
+          <span className="nav-label">数据与系统</span>
+          {systemNavigation.map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  isActive ? "nav-item nav-item--active" : "nav-item"
+                }
               >
                 <Icon size={17} strokeWidth={1.8} />
                 <span>{item.label}</span>
@@ -140,7 +159,7 @@ export function AppLayout({
           </div>
           <button className="button button--primary quick-add" onClick={onQuickAdd}>
             <Plus size={16} />
-            添加信号
+            添加线索
           </button>
         </header>
         <div className="page">{children}</div>
