@@ -22,6 +22,7 @@ import {
   isOpportunityResearchDue,
   ResearchInProgressError,
   researchOpportunity,
+  reusableFailedResearchEvidence,
 } from "./research.js";
 import { latestSchemaVersion } from "./migrations.js";
 import { estimateResearchCost } from "./providers.js";
@@ -295,6 +296,16 @@ export function configForManualOpportunityResearch(
     !force &&
     hasReport &&
     !isOpportunityResearchDue(opportunity, config.researchFreshnessDays)
+  ) {
+    return config;
+  }
+  if (
+    !force &&
+    reusableFailedResearchEvidence(
+      db,
+      opportunity,
+      config.researchFreshnessDays,
+    )
   ) {
     return config;
   }

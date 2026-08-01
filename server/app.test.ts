@@ -364,6 +364,36 @@ describe("Product Radar API", () => {
     expect(overrideConfig.maxDataForSeoTasksPerDay).toBe(104);
     expect(overrideConfig.maxDataForSeoCostPerDayUsd).toBe(0.5);
 
+    const reusableCandidate = database
+      .prepare(
+        `SELECT * FROM opportunities
+         WHERE id != ?
+           AND EXISTS (
+             SELECT 1 FROM evidence_items
+             WHERE opportunity_id = opportunities.id
+           )
+         ORDER BY created_at
+         LIMIT 1`,
+      )
+      .get(candidate.body.id) as Record<string, unknown>;
+    const collectedAt = new Date().toISOString();
+    database
+      .prepare(
+        "UPDATE opportunities SET research_status = 'FAILED' WHERE id = ?",
+      )
+      .run(reusableCandidate.id);
+    database
+      .prepare("UPDATE evidence_items SET collected_at = ? WHERE opportunity_id = ?")
+      .run(collectedAt, reusableCandidate.id);
+    const reuseConfig = configForManualOpportunityResearch(
+      database,
+      realConfig,
+      String(reusableCandidate.id),
+      false,
+      false,
+    );
+    expect(reuseConfig.maxDataForSeoTasksPerDay).toBe(100);
+
     database.prepare("UPDATE usage_events SET cost_usd = 0.44").run();
     expect(() =>
       configForManualOpportunityResearch(
