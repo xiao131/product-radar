@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 import { api } from "./api";
 import { Field, FormActions } from "./components";
-import type { Product, Signal } from "../shared/types";
+import type { Opportunity, Product, Signal } from "../shared/types";
 
 export function SignalForm({
   onCancel,
@@ -48,6 +48,9 @@ export function SignalForm({
           <option value="REDDIT">Reddit 抱怨</option>
           <option value="X">X / Twitter</option>
           <option value="APP_REVIEW">App Store 评论</option>
+          <option value="APP_STORE">App Store 市场</option>
+          <option value="SEARCH">搜索数据</option>
+          <option value="TREND">趋势数据</option>
           <option value="FORUM">论坛讨论</option>
           <option value="CUSTOMER">用户反馈</option>
           <option value="OTHER">其他</option>
@@ -79,7 +82,7 @@ export function SignalForm({
           <input name="tags" placeholder="隐私, 图片, 创作者" />
         </Field>
       </div>
-      {error && <div className="form-error">{error}</div>}
+      {error && <div className="form-error" role="alert">{error}</div>}
       <FormActions saving={saving} onCancel={onCancel} submitLabel="加入收件箱" />
     </form>
   );
@@ -88,9 +91,11 @@ export function SignalForm({
 export function ProductForm({
   onCancel,
   onSaved,
+  product,
 }: {
   onCancel: () => void;
   onSaved: (product: Product) => void;
+  product?: Product;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -101,18 +106,21 @@ export function ProductForm({
     setError("");
     const data = new FormData(event.currentTarget);
     try {
-      const product = await api<Product>("/api/products", {
-        method: "POST",
-        body: JSON.stringify({
-          name: data.get("name"),
-          platform: data.get("platform"),
-          status: data.get("status"),
-          url: data.get("url"),
-          description: data.get("description"),
-          currentFocus: data.get("currentFocus"),
-        }),
-      });
-      onSaved(product);
+      const savedProduct = await api<Product>(
+        product ? `/api/products/${product.id}` : "/api/products",
+        {
+          method: product ? "PATCH" : "POST",
+          body: JSON.stringify({
+            name: data.get("name"),
+            platform: data.get("platform"),
+            status: data.get("status"),
+            url: data.get("url"),
+            description: data.get("description"),
+            currentFocus: data.get("currentFocus"),
+          }),
+        },
+      );
+      onSaved(savedProduct);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败");
     } finally {
@@ -123,18 +131,18 @@ export function ProductForm({
   return (
     <form className="form-grid" onSubmit={submit}>
       <Field label="产品名称">
-        <input name="name" required minLength={2} maxLength={100} placeholder="例如：Photo GPS" />
+        <input name="name" required minLength={2} maxLength={100} defaultValue={product?.name} placeholder="例如：Photo GPS" />
       </Field>
       <div className="form-row">
         <Field label="平台">
-          <select name="platform" defaultValue="WEB">
+          <select name="platform" defaultValue={product?.platform ?? "WEB"}>
             <option value="WEB">Web</option>
             <option value="IOS">iOS</option>
             <option value="WEB_AND_IOS">Web + iOS</option>
           </select>
         </Field>
         <Field label="状态">
-          <select name="status" defaultValue="LIVE">
+          <select name="status" defaultValue={product?.status ?? "LIVE"}>
             <option value="IDEA">想法</option>
             <option value="BUILDING">开发中</option>
             <option value="LIVE">已上线</option>
@@ -148,17 +156,83 @@ export function ProductForm({
           name="description"
           rows={3}
           maxLength={600}
+          defaultValue={product?.description}
           placeholder="它为谁解决什么问题？"
         />
       </Field>
       <Field label="当前重点">
-        <input name="currentFocus" maxLength={300} placeholder="例如：验证英文自然搜索流量" />
+        <input name="currentFocus" maxLength={300} defaultValue={product?.currentFocus} placeholder="例如：验证英文自然搜索流量" />
       </Field>
       <Field label="网址（可选）">
-        <input name="url" type="url" placeholder="https://…" />
+        <input name="url" type="url" defaultValue={product?.url ?? ""} placeholder="https://…" />
       </Field>
-      {error && <div className="form-error">{error}</div>}
-      <FormActions saving={saving} onCancel={onCancel} submitLabel="保存产品" />
+      {error && <div className="form-error" role="alert">{error}</div>}
+      <FormActions saving={saving} onCancel={onCancel} submitLabel={product ? "保存修改" : "保存产品"} />
+    </form>
+  );
+}
+
+export function OpportunityForm({
+  opportunity,
+  onCancel,
+  onSaved,
+}: {
+  opportunity: Opportunity;
+  onCancel: () => void;
+  onSaved: (opportunity: Opportunity) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    const data = new FormData(event.currentTarget);
+    try {
+      const saved = await api<Opportunity>(
+        `/api/opportunities/${opportunity.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: data.get("name"),
+            oneLiner: data.get("oneLiner"),
+            targetUser: data.get("targetUser"),
+            recommendedPlatform: data.get("recommendedPlatform"),
+          }),
+        },
+      );
+      onSaved(saved);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="form-grid" onSubmit={submit}>
+      <Field label="候选名称">
+        <input name="name" required minLength={2} maxLength={140} defaultValue={opportunity.name} />
+      </Field>
+      <Field label="一句话机会">
+        <textarea name="oneLiner" required minLength={3} maxLength={500} rows={3} defaultValue={opportunity.oneLiner} />
+      </Field>
+      <Field label="目标用户">
+        <textarea name="targetUser" required minLength={2} maxLength={300} rows={2} defaultValue={opportunity.targetUser} />
+      </Field>
+      <Field label="建议平台">
+        <select name="recommendedPlatform" defaultValue={opportunity.recommendedPlatform}>
+          <option value="WEB">Web</option>
+          <option value="IOS">iOS</option>
+          <option value="WEB_AND_IOS">Web + iOS</option>
+        </select>
+      </Field>
+      <div className="form-warning">
+        修改候选定义后，当前结论会进入待更新状态；历史报告不会被删除。
+      </div>
+      {error && <div className="form-error" role="alert">{error}</div>}
+      <FormActions saving={saving} onCancel={onCancel} submitLabel="保存并等待重评" />
     </form>
   );
 }

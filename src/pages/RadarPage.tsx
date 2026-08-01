@@ -14,7 +14,8 @@ import type {
 } from "../../shared/types";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, OpportunityRow } from "../components";
-import { useNavigate } from "../router";
+import { useNavigate, useSearch } from "../router";
+import { useJobPolling } from "../use-job";
 
 const defaultResult: Paginated<Opportunity> = {
   items: [],
@@ -28,16 +29,44 @@ export function RadarPage() {
   const [result, setResult] = useState(defaultResult);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [page, setPage] = useState(1);
-  const [query, setQuery] = useState("");
-  const [platform, setPlatform] = useState("");
-  const [verdict, setVerdict] = useState("");
-  const [sortBy, setSortBy] = useState("score");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [batchUpdating, setBatchUpdating] = useState(false);
   const [batchMessage, setBatchMessage] = useState("");
   const [batchError, setBatchError] = useState("");
+  const [batchJobId, setBatchJobId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const search = useSearch();
+  const routeParams = useMemo(() => new URLSearchParams(search), [search]);
+  const page = Math.max(1, Number(routeParams.get("page") ?? 1) || 1);
+  const query = routeParams.get("query") ?? "";
+  const platform = routeParams.get("platform") ?? "";
+  const verdict = routeParams.get("verdict") ?? "";
+  const requestedSort = routeParams.get("sortBy") ?? "score";
+  const sortBy = ["score", "scoreDelta", "confidence", "updatedAt", "name"].includes(
+    requestedSort,
+  )
+    ? requestedSort
+    : "score";
+  const { job: batchJob, error: batchJobError } = useJobPolling(batchJobId);
+
+  function updateRoute(
+    updates: Record<string, string | number | null>,
+    replace = true,
+  ) {
+    const next = new URLSearchParams(routeParams);
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === "" || (key === "page" && Number(value) === 1)) {
+        next.delete(key);
+      } else {
+        next.set(key, String(value));
+      }
+    });
+    const queryString = next.toString();
+    navigate(`/radar${queryString ? `?${queryString}` : ""}`, {
+      replace,
+      scroll: false,
+    });
+  }
 
   const url = useMemo(() => {
     const params = new URLSearchParams({
@@ -71,6 +100,24 @@ export function RadarPage() {
     };
   }, [refreshVersion, url]);
 
+  useEffect(() => {
+    if (batchJob?.status === "COMPLETED") {
+      setBatchMessage("后台批量调研已完成，候选列表已更新。");
+      setBatchError("");
+      setRefreshVersion((value) => value + 1);
+    } else if (batchJob?.status === "PARTIAL") {
+      setBatchMessage("后台批量调研已完成，但有部分候选失败；成功结果已经更新。");
+      setBatchError(batchJob.error || "部分候选调研失败");
+      setRefreshVersion((value) => value + 1);
+    } else if (batchJob?.status === "FAILED") {
+      setBatchError(batchJob.error || "后台批量调研失败");
+    }
+  }, [batchJob]);
+
+  useEffect(() => {
+    if (batchJobError) setBatchError(batchJobError);
+  }, [batchJobError]);
+
   async function refreshDueOpportunities() {
     setBatchUpdating(true);
     setBatchMessage("");
@@ -81,10 +128,10 @@ export function RadarPage() {
         body: JSON.stringify({ delivery: "standard" }),
       });
       if ("queued" in result) {
+        setBatchJobId(result.jobId);
         setBatchMessage(
-          "已启动低成本后台批量调研。系统会优先复用新鲜证据，仅对缺失或过期数据调用付费接口。",
+          "已启动低成本后台批量调研，页面会持续跟踪到任务完成。",
         );
-        window.setTimeout(() => setRefreshVersion((value) => value + 1), 2_000);
         return;
       }
       setBatchMessage(
@@ -101,11 +148,7 @@ export function RadarPage() {
   }
 
   function resetFilters() {
-    setQuery("");
-    setPlatform("");
-    setVerdict("");
-    setSortBy("score");
-    setPage(1);
+    navigate("/radar", { replace: true, scroll: false });
   }
 
   return (
@@ -116,9 +159,9 @@ export function RadarPage() {
           <input
             value={query}
             onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(1);
+              updateRoute({ query: event.target.value, page: null });
             }}
+            maxLength={120}
             placeholder="搜索候选、用户或问题…"
             aria-label="搜索雷达库"
           />
@@ -128,8 +171,7 @@ export function RadarPage() {
           <select
             value={platform}
             onChange={(event) => {
-              setPlatform(event.target.value);
-              setPage(1);
+              updateRoute({ platform: event.target.value, page: null });
             }}
             aria-label="按平台筛选"
           >
@@ -141,8 +183,7 @@ export function RadarPage() {
           <select
             value={verdict}
             onChange={(event) => {
-              setVerdict(event.target.value);
-              setPage(1);
+              updateRoute({ verdict: event.target.value, page: null });
             }}
             aria-label="按结论筛选"
           >
@@ -155,8 +196,7 @@ export function RadarPage() {
           <select
             value={sortBy}
             onChange={(event) => {
-              setSortBy(event.target.value);
-              setPage(1);
+              updateRoute({ sortBy: event.target.value === "score" ? null : event.target.value, page: null });
             }}
             aria-label="排序方式"
           >
@@ -170,14 +210,22 @@ export function RadarPage() {
         <button
           className="button button--secondary"
           onClick={refreshDueOpportunities}
-          disabled={batchUpdating}
+          disabled={batchUpdating || batchJob?.status === "RUNNING"}
         >
-          <RefreshCw className={batchUpdating ? "spin" : ""} size={16} />
-          {batchUpdating ? "批量更新中…" : "更新到期数据"}
+          <RefreshCw className={batchUpdating || batchJob?.status === "RUNNING" ? "spin" : ""} size={16} />
+          {batchUpdating || batchJob?.status === "RUNNING" ? "批量更新中…" : "更新到期数据"}
         </button>
       </section>
-      {batchMessage && <div className="form-success batch-message">{batchMessage}</div>}
-      {batchError && <div className="form-error batch-message">{batchError}</div>}
+      {batchMessage && <div className="form-success batch-message" role="status">{batchMessage}</div>}
+      {batchError && <div className="form-error batch-message" role="alert">{batchError}</div>}
+      {batchJobId && (
+        <button
+          className="text-button batch-job-link"
+          onClick={() => navigate(`/operations?job=${batchJobId}`)}
+        >
+          查看任务 {batchJobId.slice(0, 8)}
+        </button>
+      )}
 
       <section className="table-panel">
         <header className="table-panel__header">
@@ -185,7 +233,7 @@ export function RadarPage() {
             <span className="eyebrow">ALL OPPORTUNITIES</span>
             <h2>{result.total} 个候选产品</h2>
           </div>
-          <span className="table-hint">单击任意候选查看完整证据</span>
+          <span className="table-hint">通过候选名称进入完整证据档案</span>
         </header>
         {error ? (
           <ErrorState message={error} />
@@ -210,7 +258,11 @@ export function RadarPage() {
                     <OpportunityRow
                       key={item.id}
                       item={item}
-                      onClick={() => navigate(`/radar/${item.id}`)}
+                      onClick={() =>
+                        navigate(
+                          `/radar/${item.id}${search ? `?from=${encodeURIComponent(search)}` : ""}`,
+                        )
+                      }
                     />
                   ))}
                 </tbody>
@@ -224,7 +276,7 @@ export function RadarPage() {
                 <button
                   className="icon-button"
                   disabled={page <= 1}
-                  onClick={() => setPage((value) => value - 1)}
+                  onClick={() => updateRoute({ page: page - 1 }, false)}
                   aria-label="上一页"
                 >
                   <ChevronLeft size={18} />
@@ -232,7 +284,7 @@ export function RadarPage() {
                 <button
                   className="icon-button"
                   disabled={page >= result.totalPages}
-                  onClick={() => setPage((value) => value + 1)}
+                  onClick={() => updateRoute({ page: page + 1 }, false)}
                   aria-label="下一页"
                 >
                   <ChevronRight size={18} />

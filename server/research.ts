@@ -313,11 +313,21 @@ function demoResearch(
     evidenceCoverage: evidenceCoverage(evidence),
     evidenceSnapshot: evidence.map((item) => ({
       id: item.id,
+      opportunityId: item.opportunityId,
       category: item.category,
       sourceName: item.sourceName,
+      sourceUrl: item.sourceUrl,
       metric: item.metric,
       value: item.value,
+      unit: item.unit,
+      direction: item.direction,
+      strength: item.strength,
+      summary: item.summary,
+      rawExcerpt: item.rawExcerpt,
       collectedAt: item.collectedAt,
+      freshnessDays: item.freshnessDays,
+      fingerprint: item.fingerprint ?? null,
+      market: item.market ?? null,
     })),
     guardrail: { applied: false, reasons: [] },
     usage: { inputTokens: 0, outputTokens: 0 },
@@ -584,7 +594,7 @@ export function isOpportunityResearchDue(
   baseFreshnessDays: number,
 ) {
   if (opportunity.researchStatus === "RUNNING") return false;
-  if (opportunity.researchStatus !== "READY") return true;
+  if (!opportunity.decisionCurrent) return true;
   return !isFresh(
     opportunity.lastResearchedAt,
     researchFreshnessDaysFor(opportunity, baseFreshnessDays),
@@ -639,6 +649,7 @@ export async function researchOpportunity(
   if (
     !options.force &&
     previousReport &&
+    opportunity.decisionCurrent &&
     isFresh(opportunity.lastResearchedAt, freshnessDays)
   ) {
     return {
@@ -709,6 +720,12 @@ export async function researchOpportunity(
     };
 
     const transaction = db.transaction(() => {
+      const currentState = db
+        .prepare("SELECT stale_since FROM opportunities WHERE id = ?")
+        .get(opportunityId) as { stale_since: string | null };
+      const invalidatedDuringRun = Boolean(
+        currentState.stale_since !== opportunity.staleSince,
+      );
       db.prepare(`
         INSERT INTO research_reports (
           id, opportunity_id, run_id, version, provider_mode, verdict,
@@ -744,7 +761,7 @@ export async function researchOpportunity(
       );
       db.prepare(`
         UPDATE opportunities SET
-          recommended_platform = ?, verdict = ?, research_status = 'READY',
+          recommended_platform = ?, verdict = ?, research_status = ?, stale_since = ?,
           score = ?, score_delta = ?, confidence = ?,
           demand_score = ?, pain_score = ?, trend_score = ?, willingness_score = ?,
           competition_gap_score = ?, reachability_score = ?, buildability_score = ?,
@@ -754,6 +771,8 @@ export async function researchOpportunity(
       `).run(
         output.recommendedPlatform,
         output.verdict,
+        invalidatedDuringRun ? "UNRESEARCHED" : "READY",
+        invalidatedDuringRun ? currentState.stale_since : null,
         output.score,
         scoreDelta,
         output.confidence,
@@ -766,7 +785,9 @@ export async function researchOpportunity(
         output.dimensionScores.find((item) => item.key === "buildability")?.score ?? 0,
         output.dimensionScores.find((item) => item.key === "founderFit")?.score ?? 0,
         output.dimensionScores.find((item) => item.key === "freshness")?.score ?? 0,
-        output.changeSummary,
+        invalidatedDuringRun
+          ? "调研期间产品或证据再次变化；本次报告已保留为历史，等待重新评估。"
+          : output.changeSummary,
         finishedAt,
         finishedAt,
         opportunityId,
@@ -989,17 +1010,26 @@ export async function researchDueOpportunities(
       const previousMetrics = latestMetricValues(db, opportunity.id);
       if (
         previousReport &&
-        opportunity.researchStatus === "READY" &&
+        opportunity.decisionCurrent &&
         opportunity.lastResearchedAt !== null &&
         !hasMaterialEvidenceChange(previousMetrics, evidence)
       ) {
         persistEvidence(db, evidence);
         const refreshedAt = new Date().toISOString();
-        db.prepare(
+        const update = db.prepare(
           `UPDATE opportunities
-           SET research_status = 'READY', updated_at = ?, last_researched_at = ?
-           WHERE id = ?`,
+           SET research_status = 'READY', stale_since = NULL, updated_at = ?, last_researched_at = ?
+           WHERE id = ?
+             AND stale_since IS NULL`,
         ).run(refreshedAt, refreshedAt, opportunity.id);
+        if (update.changes === 0) {
+          summary.failed += 1;
+          summary.failures.push({
+            opportunityId: opportunity.id,
+            message: "批量调研期间候选上下文发生变化，已保留待重评状态",
+          });
+          return;
+        }
         summary.unchanged += 1;
         return;
       }

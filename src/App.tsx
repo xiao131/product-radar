@@ -1,17 +1,32 @@
-import { useEffect, useState } from "react";
-import { Modal } from "./components";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { X } from "lucide-react";
+import type { Signal } from "../shared/types";
+import { LoadingState, Modal } from "./components";
 import { SignalForm } from "./forms";
 import { AppLayout } from "./layout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
-import { OpportunityDetailPage } from "./pages/OpportunityDetailPage";
-import { OperationsPage } from "./pages/OperationsPage";
-import { ProductsPage } from "./pages/ProductsPage";
 import { RadarPage } from "./pages/RadarPage";
-import { SignalsPage } from "./pages/SignalsPage";
-import { SettingsPage } from "./pages/SettingsPage";
 import { useNavigate, usePath } from "./router";
 import { api } from "./api";
+
+const OpportunityDetailPage = lazy(() =>
+  import("./pages/OpportunityDetailPage").then((module) => ({
+    default: module.OpportunityDetailPage,
+  })),
+);
+const OperationsPage = lazy(() =>
+  import("./pages/OperationsPage").then((module) => ({ default: module.OperationsPage })),
+);
+const ProductsPage = lazy(() =>
+  import("./pages/ProductsPage").then((module) => ({ default: module.ProductsPage })),
+);
+const SignalsPage = lazy(() =>
+  import("./pages/SignalsPage").then((module) => ({ default: module.SignalsPage })),
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })),
+);
 
 interface AuthSession {
   authenticated: boolean;
@@ -47,6 +62,8 @@ function RoutedPage() {
 export default function App() {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [quickAddNotice, setQuickAddNotice] = useState<Signal | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const loadSession = () => {
@@ -61,6 +78,12 @@ export default function App() {
     return () =>
       window.removeEventListener("product-radar:unauthorized", loadSession);
   }, []);
+
+  useEffect(() => {
+    if (!quickAddNotice) return;
+    const timer = window.setTimeout(() => setQuickAddNotice(null), 7_000);
+    return () => window.clearTimeout(timer);
+  }, [quickAddNotice]);
 
   async function logout() {
     await api<AuthSession>("/api/auth/logout", { method: "POST" });
@@ -78,7 +101,9 @@ export default function App() {
       onLogout={() => void logout()}
       authRequired={session.authRequired}
     >
-      <RoutedPage />
+      <Suspense fallback={<LoadingState label="正在加载页面" />}>
+        <RoutedPage />
+      </Suspense>
       <Modal
         title="捕捉一条新信号"
         subtitle="先记录，再决定是否值得进入调研。"
@@ -87,9 +112,38 @@ export default function App() {
       >
         <SignalForm
           onCancel={() => setQuickAddOpen(false)}
-          onSaved={() => setQuickAddOpen(false)}
+          onSaved={(signal) => {
+            setQuickAddOpen(false);
+            setQuickAddNotice(signal);
+          }}
         />
       </Modal>
+      <div className="toast-region" aria-live="polite" aria-atomic="true">
+        {quickAddNotice && (
+          <div className="toast" role="status">
+            <div>
+              <strong>线索已保存</strong>
+              <span>{quickAddNotice.title}</span>
+            </div>
+            <button
+              className="text-button"
+              onClick={() => {
+                setQuickAddNotice(null);
+                navigate("/signals");
+              }}
+            >
+              查看证据
+            </button>
+            <button
+              className="icon-button"
+              aria-label="关闭通知"
+              onClick={() => setQuickAddNotice(null)}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+      </div>
     </AppLayout>
   );
 }

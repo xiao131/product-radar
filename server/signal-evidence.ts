@@ -110,11 +110,11 @@ export function linkSignalEvidence(
     ).run(opportunityId, linkedAt, signal.id);
     db.prepare(
       `UPDATE opportunities
-       SET research_status = 'UNRESEARCHED',
-           last_researched_at = NULL,
+       SET research_status = CASE WHEN research_status = 'RUNNING' THEN 'RUNNING' ELSE 'UNRESEARCHED' END,
+           stale_since = ?,
            change_summary = ?,
            updated_at = ?
        WHERE id = ?`,
-    ).run("收到新的用户信号，等待结合新证据重新判断。", linkedAt, opportunityId);
+    ).run(linkedAt, "收到新的用户信号，等待结合新证据重新判断。", linkedAt, opportunityId);
   })();
 }

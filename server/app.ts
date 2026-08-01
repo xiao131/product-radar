@@ -55,6 +55,8 @@ import {
 } from "../shared/schemas.js";
 import type {
   DashboardData,
+  EvidenceItem,
+  JobRun,
   Opportunity,
   OpportunityDetail,
   OpportunityOption,
@@ -96,6 +98,10 @@ const signalListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+const opportunityDetailQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
 const sortColumns = {
   score: "score",
   scoreDelta: "score_delta",
@@ -123,17 +129,101 @@ function markPortfolioDependentResearchDue(
 ) {
   db.prepare(
     `UPDATE opportunities
-     SET research_status = 'UNRESEARCHED',
-         last_researched_at = NULL,
+     SET research_status = CASE WHEN research_status = 'RUNNING' THEN 'RUNNING' ELSE 'UNRESEARCHED' END,
+         stale_since = ?,
          change_summary = '产品组合发生变化，等待重新评估资产复用与个人匹配。',
          updated_at = ?`,
-  ).run(changedAt);
+  ).run(changedAt, changedAt);
 }
 
-function toSqlUpdates(input: Record<string, unknown>, mapping: Record<string, string>) {
+function toSqlUpdates(
+  input: Record<string, unknown>,
+  mapping: Record<string, string>,
+  emptyToNullFields: ReadonlySet<string> = new Set(),
+) {
   return Object.entries(input)
     .filter(([key]) => mapping[key])
-    .map(([key, value]) => ({ column: mapping[key], value: value === "" ? null : value }));
+    .map(([key, value]) => ({
+      column: mapping[key],
+      value: value === "" && emptyToNullFields.has(key) ? null : value,
+    }));
+}
+
+function jobRunFromRow(row: Record<string, unknown>): JobRun {
+  let result: Record<string, unknown> | undefined;
+  try {
+    result = JSON.parse(String(row.result_json ?? "{}")) as Record<string, unknown>;
+  } catch {
+    result = undefined;
+  }
+  return {
+    id: String(row.id),
+    type: String(row.job_type),
+    trigger: String(row.trigger_type),
+    status: row.status as JobRun["status"],
+    error: row.error ? String(row.error) : null,
+    result,
+    startedAt: String(row.started_at),
+    finishedAt: row.finished_at ? String(row.finished_at) : null,
+  };
+}
+
+function reportEvidenceFromSnapshot(
+  opportunityId: string,
+  report: OpportunityDetail["reports"][number] | undefined,
+  fallback: EvidenceItem[],
+) {
+  if (!report) return [];
+  const fallbackById = new Map(fallback.map((item) => [item.id, item]));
+  const snapshotById = new Map(
+    (report.evidenceSnapshot ?? [])
+      .filter((item) => typeof item.id === "string")
+      .map((item) => [String(item.id), item]),
+  );
+  return report.evidenceIds.flatMap((id): EvidenceItem[] => {
+    const current = fallbackById.get(id);
+    const snapshot = snapshotById.get(id);
+    if (!current && !snapshot) return [];
+    const value = snapshot?.value;
+    return [{
+      id,
+      opportunityId,
+      category: (snapshot?.category ?? current?.category ?? "BUILD") as EvidenceItem["category"],
+      sourceName: String(snapshot?.sourceName ?? current?.sourceName ?? "未知来源"),
+      sourceUrl:
+        typeof snapshot?.sourceUrl === "string"
+          ? snapshot.sourceUrl
+          : current?.sourceUrl ?? null,
+      metric: String(snapshot?.metric ?? current?.metric ?? "unknown"),
+      value:
+        typeof value === "number"
+          ? value
+          : value === null
+            ? null
+            : current?.value ?? null,
+      unit:
+        typeof snapshot?.unit === "string"
+          ? snapshot.unit
+          : current?.unit ?? null,
+      direction: (snapshot?.direction ?? current?.direction ?? "UNKNOWN") as EvidenceItem["direction"],
+      strength: Number(snapshot?.strength ?? current?.strength ?? 0),
+      summary: String(snapshot?.summary ?? current?.summary ?? snapshot?.metric ?? "历史证据"),
+      rawExcerpt:
+        typeof snapshot?.rawExcerpt === "string"
+          ? snapshot.rawExcerpt
+          : current?.rawExcerpt ?? null,
+      collectedAt: String(snapshot?.collectedAt ?? current?.collectedAt ?? report.createdAt),
+      freshnessDays: Number(snapshot?.freshnessDays ?? current?.freshnessDays ?? 0),
+      fingerprint:
+        typeof snapshot?.fingerprint === "string"
+          ? snapshot.fingerprint
+          : current?.fingerprint ?? null,
+      market:
+        typeof snapshot?.market === "string"
+          ? snapshot.market
+          : current?.market ?? null,
+    }];
+  });
 }
 
 function handleError(
@@ -209,45 +299,13 @@ export function configForManualOpportunityResearch(
     return config;
   }
 
-  const dueOpportunities = (
-    db.prepare("SELECT * FROM opportunities").all() as Record<string, unknown>[]
-  )
-    .map(mapOpportunity)
-    .filter(
-      (candidate) =>
-        candidate.id === opportunity.id ||
-        isOpportunityResearchDue(candidate, config.researchFreshnessDays),
-    );
-  const estimate = force
-    ? (() => {
-        const target = estimateResearchCost(
-          [opportunity],
-          config,
-          "standard",
-          db,
-          true,
-        );
-        const remaining = estimateResearchCost(
-          dueOpportunities.filter(
-            (candidate) => candidate.id !== opportunity.id,
-          ),
-          config,
-          "standard",
-          db,
-        );
-        return {
-          taskUnits: target.taskUnits + remaining.taskUnits,
-          estimatedCostUsd: Number(
-            (target.estimatedCostUsd + remaining.estimatedCostUsd).toFixed(6),
-          ),
-        };
-      })()
-    : estimateResearchCost(
-        dueOpportunities,
-        config,
-        "standard",
-        db,
-      );
+  const estimate = estimateResearchCost(
+    [opportunity],
+    config,
+    "standard",
+    db,
+    force,
+  );
   if (!estimate.taskUnits) return config;
   const usage = new UsageLedger(db, config).today().dataForSeo;
   const projectedCostUsd = Number(
@@ -379,6 +437,10 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
   app.use("/api", security.requestRateLimiter);
   app.use("/api", security.requireAuthentication);
   app.use("/api", security.requireCsrf);
+  app.use("/api", (_request, response, next) => {
+    response.setHeader("Cache-Control", "no-store");
+    next();
+  });
   app.post("/api/auth/logout", security.logout);
 
   app.get("/api/settings", (_request, response) => {
@@ -472,17 +534,17 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       mode: config.researchProvider === "real" ? "REAL" : "DEMO",
       topOpportunities: rows(
         db,
-        "SELECT * FROM opportunities WHERE verdict IN ('BUILD_NOW', 'VALIDATE_FIRST') ORDER BY score DESC LIMIT 5",
+        "SELECT * FROM opportunities WHERE research_status = 'READY' AND stale_since IS NULL AND verdict IN ('BUILD_NOW', 'VALIDATE_FIRST') ORDER BY score DESC LIMIT 5",
         mapOpportunity,
       ),
       risingOpportunities: rows(
         db,
-        "SELECT * FROM opportunities WHERE score_delta > 0 ORDER BY score_delta DESC, score DESC LIMIT 5",
+        "SELECT * FROM opportunities WHERE research_status = 'READY' AND stale_since IS NULL AND score_delta > 0 ORDER BY score_delta DESC, score DESC LIMIT 5",
         mapOpportunity,
       ),
       watchlist: rows(
         db,
-        "SELECT * FROM opportunities WHERE verdict = 'WATCH' ORDER BY score DESC LIMIT 4",
+        "SELECT * FROM opportunities WHERE research_status = 'READY' AND stale_since IS NULL AND verdict = 'WATCH' ORDER BY score DESC LIMIT 4",
         mapOpportunity,
       ),
       products: rows(
@@ -493,7 +555,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       stats: {
         opportunities: scalar("SELECT COUNT(*) AS count FROM opportunities"),
         buildNow: scalar(
-          "SELECT COUNT(*) AS count FROM opportunities WHERE verdict = 'BUILD_NOW'",
+          "SELECT COUNT(*) AS count FROM opportunities WHERE research_status = 'READY' AND stale_since IS NULL AND verdict = 'BUILD_NOW'",
         ),
         unresearched: scalar(
           "SELECT COUNT(*) AS count FROM opportunities WHERE research_status = 'UNRESEARCHED'",
@@ -522,6 +584,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     if (query.verdict) {
       conditions.push("verdict = ?");
       values.push(query.verdict);
+      conditions.push("research_status = 'READY'");
+      conditions.push("stale_since IS NULL");
     }
     if (query.researchStatus) {
       conditions.push("research_status = ?");
@@ -534,10 +598,15 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       }
     ).count;
     const offset = (query.page - 1) * query.pageSize;
+    const currentDecisionOrder = ["score", "scoreDelta", "confidence"].includes(
+      query.sortBy,
+    )
+      ? "CASE WHEN research_status = 'READY' AND stale_since IS NULL THEN 0 ELSE 1 END ASC,"
+      : "";
     const items = rows(
       db,
       `SELECT * FROM opportunities ${where}
-       ORDER BY ${sortColumns[query.sortBy]} ${query.sortDirection.toUpperCase()}, name ASC
+       ORDER BY ${currentDecisionOrder} ${sortColumns[query.sortBy]} ${query.sortDirection.toUpperCase()}, name ASC
        LIMIT ? OFFSET ?`,
       mapOpportunity,
       ...values,
@@ -570,7 +639,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
           `SELECT id, name, recommended_platform
            FROM opportunities
            ${where}
-           ORDER BY score DESC, updated_at DESC
+           ORDER BY CASE WHEN research_status = 'READY' AND stale_since IS NULL THEN 0 ELSE 1 END,
+                    score DESC, updated_at DESC
            LIMIT ?`,
         )
         .all(...values, query.limit) as Array<{
@@ -589,6 +659,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
   });
 
   app.get("/api/opportunities/:id", (request, response) => {
+    const { limit } = opportunityDetailQuerySchema.parse(request.query);
     const opportunityRow = db
       .prepare("SELECT * FROM opportunities WHERE id = ?")
       .get(request.params.id) as Record<string, unknown> | undefined;
@@ -596,26 +667,60 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       response.status(404).json({ error: "找不到这个候选产品" });
       return;
     }
-    const detail: OpportunityDetail = {
-      opportunity: mapOpportunity(opportunityRow),
-      evidence: rows(
+    const evidence = rows(
         db,
-        "SELECT * FROM evidence_items WHERE opportunity_id = ? ORDER BY collected_at DESC",
+        "SELECT * FROM evidence_items WHERE opportunity_id = ? ORDER BY collected_at DESC LIMIT ?",
         mapEvidence,
         request.params.id,
-      ),
-      reports: rows(
+        limit,
+      );
+    const reports = rows(
         db,
-        "SELECT * FROM research_reports WHERE opportunity_id = ? ORDER BY version DESC",
+        "SELECT * FROM research_reports WHERE opportunity_id = ? ORDER BY version DESC LIMIT ?",
         mapReport,
         request.params.id,
+        limit,
+      );
+    const reportIds = reports[0]?.evidenceIds ?? [];
+    const reportFallback = reportIds.length
+      ? rows(
+          db,
+          `SELECT * FROM evidence_items WHERE opportunity_id = ? AND id IN (${reportIds.map(() => "?").join(",")})`,
+          mapEvidence,
+          request.params.id,
+          ...reportIds,
+        )
+      : [];
+    const count = (table: "evidence_items" | "research_reports" | "signals") =>
+      Number(
+        (
+          db
+            .prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE opportunity_id = ?`)
+            .get(request.params.id) as { count: number }
+        ).count,
+      );
+    const detail: OpportunityDetail = {
+      opportunity: mapOpportunity(opportunityRow),
+      reportEvidence: reportEvidenceFromSnapshot(
+        request.params.id,
+        reports[0],
+        reportFallback,
       ),
+      evidence,
+      reports,
       signals: rows(
         db,
-        "SELECT * FROM signals WHERE opportunity_id = ? ORDER BY created_at DESC",
+        "SELECT * FROM signals WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT ?",
         mapSignal,
         request.params.id,
+        limit,
       ),
+      totals: {
+        evidence: count("evidence_items"),
+        reports: count("research_reports"),
+        signals: count("signals"),
+      },
+      limit,
     };
     response.json(detail);
   });
@@ -633,14 +738,15 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       db.prepare(
         `UPDATE opportunities
          SET ${updates.map((entry) => `${entry.column} = ?`).join(", ")},
-             research_status = 'UNRESEARCHED',
-             last_researched_at = NULL,
+             research_status = CASE WHEN research_status = 'RUNNING' THEN 'RUNNING' ELSE 'UNRESEARCHED' END,
+             stale_since = ?,
              change_summary = '候选定义发生变化，等待重新调研。',
              updated_at = ?
          WHERE id = ?`,
       ).run(
         ...updates.map((entry) => entry.value),
-        now(),
+        changedAt,
+        changedAt,
         request.params.id,
       );
     }
@@ -769,20 +875,12 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       ).length;
     const jobs = db
       .prepare(
-        `SELECT id, job_type, trigger_type, status, error, started_at, finished_at
+        `SELECT id, job_type, trigger_type, status, result_json, error, started_at, finished_at
          FROM job_runs
          ORDER BY started_at DESC
          LIMIT 12`,
       )
-      .all() as Array<{
-      id: string;
-      job_type: string;
-      trigger_type: string;
-      status: string;
-      error: string | null;
-      started_at: string;
-      finished_at: string | null;
-    }>;
+      .all() as Record<string, unknown>[];
     const backup = db
       .prepare(
         `SELECT status, path, size_bytes, integrity_result, finished_at
@@ -877,15 +975,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         ),
         collectionReused: Boolean(discoveryResult.collectionReused),
       },
-      jobs: jobs.map((job) => ({
-        id: job.id,
-        type: job.job_type,
-        trigger: job.trigger_type,
-        status: job.status,
-        error: job.error,
-        startedAt: job.started_at,
-        finishedAt: job.finished_at,
-      })),
+      jobs: jobs.map(jobRunFromRow),
       latestBackup: backup
         ? {
             status: backup.status,
@@ -899,6 +989,21 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         : null,
     };
     response.json(status);
+  });
+
+  app.get("/api/jobs/:id", (request, response) => {
+    const row = db
+      .prepare(
+        `SELECT id, job_type, trigger_type, status, result_json, error, started_at, finished_at
+         FROM job_runs
+         WHERE id = ?`,
+      )
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    if (!row) {
+      response.status(404).json({ error: "找不到这个任务" });
+      return;
+    }
+    response.json(jobRunFromRow(row));
   });
 
   app.post(
@@ -989,7 +1094,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       url: "url",
       description: "description",
       currentFocus: "current_focus",
-    });
+    }, new Set(["url"]));
     if (updates.length) {
       const changedAt = now();
       db.transaction(() => {

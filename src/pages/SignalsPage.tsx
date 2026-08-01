@@ -7,7 +7,7 @@ import {
   Link2,
   Plus,
 } from "lucide-react";
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useState } from "react";
 import type {
   Opportunity,
   OpportunityOption,
@@ -39,6 +39,7 @@ export function SignalsPage() {
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [processing, setProcessing] = useState("");
   const [importing, setImporting] = useState(false);
@@ -48,7 +49,6 @@ export function SignalsPage() {
   >([]);
   const [linkTarget, setLinkTarget] = useState("");
   const [linking, setLinking] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   function load() {
@@ -63,6 +63,7 @@ export function SignalsPage() {
   async function processSignal(signal: Signal) {
     setProcessing(signal.id);
     setActionError("");
+    setActionMessage("");
     try {
       const opportunity = await api<Opportunity>(`/api/signals/${signal.id}/process`, {
         method: "POST",
@@ -78,6 +79,7 @@ export function SignalsPage() {
     setLinkingSignal(signal);
     setLinkTarget("");
     setActionError("");
+    setActionMessage("");
     try {
       const options = await api<OpportunityOption[]>(
         "/api/opportunities/options?limit=100",
@@ -115,12 +117,14 @@ export function SignalsPage() {
     if (!file) return;
     setImporting(true);
     setActionError("");
+    setActionMessage("");
     try {
       const csv = await file.text();
-      await api<{ imported: number }>("/api/signals/import", {
+      const result = await api<{ imported: number }>("/api/signals/import", {
         method: "POST",
         body: JSON.stringify({ csv }),
       });
+      setActionMessage(`已导入 ${result.imported} 条证据。`);
       load();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "导入失败");
@@ -144,20 +148,19 @@ export function SignalsPage() {
           </p>
         </div>
         <div>
-          <input
-            ref={fileInput}
-            className="visually-hidden"
-            type="file"
-            accept=".csv,text/csv"
-            onChange={importCsv}
-          />
-          <button
-            className="button button--secondary"
-            onClick={() => fileInput.current?.click()}
-            disabled={importing}
+          <label
+            className={`button button--secondary file-button ${importing ? "file-button--disabled" : ""}`}
+            aria-disabled={importing}
           >
+            <input
+              className="visually-hidden"
+              type="file"
+              accept=".csv,text/csv"
+              onChange={importCsv}
+              disabled={importing}
+            />
             <FileUp size={16} /> {importing ? "导入中…" : "导入 CSV"}
-          </button>
+          </label>
           <button className="button button--primary" onClick={() => setModalOpen(true)}>
             <Plus size={16} /> 添加信号
           </button>
@@ -166,7 +169,8 @@ export function SignalsPage() {
       <p className="csv-hint">
         CSV 支持列：<code>title, content, source_type, source_url, tags</code>，tags 用分号分隔。
       </p>
-      {actionError && <div className="form-error standalone-error">{actionError}</div>}
+      {actionError && <div className="form-error standalone-error" role="alert">{actionError}</div>}
+      {actionMessage && <div className="form-success standalone-error" role="status">{actionMessage}</div>}
 
       {signals.items.length ? (
         <>
@@ -311,6 +315,7 @@ export function SignalsPage() {
                 : current,
             );
             setModalOpen(false);
+            setActionMessage("信号已保存，可继续转为新候选或加入已有候选。");
           }}
         />
       </Modal>

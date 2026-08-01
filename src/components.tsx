@@ -1,4 +1,11 @@
-import { type FormEvent, type ReactNode, useEffect } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+} from "react";
+import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, LoaderCircle, X } from "lucide-react";
 import type {
   Opportunity,
@@ -7,12 +14,6 @@ import type {
   Verdict,
 } from "../shared/types";
 import { platformLabels, verdictLabels } from "./format";
-
-const researchScoreLabels: Record<Exclude<ResearchStatus, "READY">, string> = {
-  UNRESEARCHED: "未评分",
-  RUNNING: "调研中",
-  FAILED: "调研失败",
-};
 
 export function Score({
   value,
@@ -24,7 +25,7 @@ export function Score({
   size?: "normal" | "large";
 }) {
   if (status !== "READY") {
-    const label = researchScoreLabels[status];
+    const label = researchStatusLabels[status];
     return (
       <div
         className={`score score--${size} score--pending`}
@@ -102,7 +103,7 @@ export function EmptyState({
 
 export function LoadingState({ label = "正在读取雷达数据" }: { label?: string }) {
   return (
-    <div className="loading-state">
+    <div className="loading-state" role="status" aria-live="polite">
       <LoaderCircle className="spin" size={20} />
       <span>{label}</span>
     </div>
@@ -117,7 +118,7 @@ export function ErrorState({
   retry?: () => void;
 }) {
   return (
-    <div className="error-state">
+    <div className="error-state" role="alert">
       <strong>这次读取没有成功</strong>
       <span>{message}</span>
       {retry && (
@@ -142,28 +143,88 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const modalRef = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
-    const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    document.addEventListener("keydown", close);
-    return () => document.removeEventListener("keydown", close);
-  }, [open, onClose]);
+    previousFocus.current = document.activeElement as HTMLElement | null;
+    const root = document.getElementById("root");
+    if (root) root.inert = true;
+    document.body.classList.add("modal-open");
+    const focusFrame = window.requestAnimationFrame(() => {
+      const formField = modalRef.current?.querySelector<HTMLElement>(
+        "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), select:not([disabled]), [autofocus]",
+      );
+      const fallback = modalRef.current?.querySelector<HTMLElement>(
+        "button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+      );
+      (formField ?? fallback ?? modalRef.current)?.focus();
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !modalRef.current) return;
+      const focusable = Array.from(
+        modalRef.current.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+        ),
+      ).filter((element) => !element.hidden);
+      if (!focusable.length) {
+        event.preventDefault();
+        modalRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.classList.remove("modal-open");
+      if (root) root.inert = false;
+      previousFocus.current?.focus();
+    };
+  }, [open]);
 
   if (!open) return null;
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+  return createPortal(
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
+        ref={modalRef}
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
-        onMouseDown={(event) => event.stopPropagation()}
+        aria-labelledby={titleId}
+        aria-describedby={subtitle ? descriptionId : undefined}
+        tabIndex={-1}
       >
         <header className="modal__header">
           <div>
             <span className="eyebrow">ADD TO RADAR</span>
-            <h2 id="modal-title">{title}</h2>
-            {subtitle && <p>{subtitle}</p>}
+            <h2 id={titleId}>{title}</h2>
+            {subtitle && <p id={descriptionId}>{subtitle}</p>}
           </div>
           <button className="icon-button" onClick={onClose} aria-label="关闭">
             <X size={19} />
@@ -171,7 +232,8 @@ export function Modal({
         </header>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -205,17 +267,18 @@ export function OpportunityRow({
   if (compact) {
     return (
       <button className="opportunity-compact" onClick={onClick}>
-        <Score value={item.score} status={item.researchStatus} />
+        <Score
+          value={item.score}
+          status={item.decisionCurrent ? "READY" : item.researchStatus}
+        />
         <div className="opportunity-compact__body">
           <strong>{item.name}</strong>
           <span>{item.oneLiner}</span>
         </div>
         <div className="opportunity-compact__meta">
-          {item.researchStatus === "READY" ? (
-            <>
-              <Delta value={item.scoreDelta} />
-              <VerdictBadge verdict={item.verdict} />
-            </>
+          {item.decisionCurrent ? <Delta value={item.scoreDelta} /> : null}
+          {item.decisionCurrent ? (
+            <VerdictBadge verdict={item.verdict} />
           ) : (
             <ResearchStatusBadge status={item.researchStatus} />
           )}
@@ -225,16 +288,21 @@ export function OpportunityRow({
   }
 
   return (
-    <tr className="clickable-row" onClick={onClick}>
+    <tr className="clickable-row">
       <td>
-        <Score value={item.score} status={item.researchStatus} />
+        <Score
+          value={item.score}
+          status={item.decisionCurrent ? "READY" : item.researchStatus}
+        />
       </td>
       <td className="opportunity-name">
-        <strong>{item.name}</strong>
-        <span>{item.oneLiner}</span>
+        <button className="opportunity-name-button" onClick={onClick}>
+          <strong>{item.name}</strong>
+          <span>{item.oneLiner}</span>
+        </button>
       </td>
       <td>
-        {item.researchStatus === "READY" ? (
+        {item.decisionCurrent ? (
           <VerdictBadge verdict={item.verdict} />
         ) : (
           <ResearchStatusBadge status={item.researchStatus} />
@@ -244,14 +312,10 @@ export function OpportunityRow({
         <PlatformBadge platform={item.recommendedPlatform} />
       </td>
       <td>
-        {item.researchStatus === "READY" ? (
-          <Delta value={item.scoreDelta} />
-        ) : (
-          <span className="muted">—</span>
-        )}
+        {item.decisionCurrent ? <Delta value={item.scoreDelta} /> : <span className="muted">—</span>}
       </td>
       <td className="mono muted">
-        {item.researchStatus === "READY" ? `${item.confidence}%` : "—"}
+        {item.decisionCurrent ? `${item.confidence}%` : "—"}
       </td>
     </tr>
   );

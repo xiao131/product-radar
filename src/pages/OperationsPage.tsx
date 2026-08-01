@@ -12,6 +12,7 @@ import type { OperationsStatus } from "../../shared/types";
 import { api } from "../api";
 import { ErrorState, LoadingState } from "../components";
 import { shortDate } from "../format";
+import { useNavigate, useSearch } from "../router";
 import {
   jobErrorLabel,
   jobStatusLabel,
@@ -26,6 +27,9 @@ export function OperationsPage() {
     "discovery" | "research" | "backup" | ""
   >("");
   const [actionError, setActionError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const navigate = useNavigate();
+  const highlightedJobId = new URLSearchParams(useSearch()).get("job");
 
   function load() {
     setError("");
@@ -38,15 +42,28 @@ export function OperationsPage() {
 
   useEffect(() => {
     load();
-    const timer = window.setInterval(load, 10_000);
-    return () => window.clearInterval(timer);
+    const refresh = () => {
+      if (!document.hidden) load();
+    };
+    const timer = window.setInterval(refresh, 10_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, []);
 
   async function run(kind: "discovery" | "research" | "backup") {
     setAction(kind);
     setActionError("");
+    setActionMessage("");
     try {
-      await api(`/api/operations/${kind}`, { method: "POST" });
+      const queued = await api<{ jobId: string; status: "RUNNING" }>(
+        `/api/operations/${kind}`,
+        { method: "POST" },
+      );
+      setActionMessage(`任务 ${queued.jobId.slice(0, 8)} 已启动，状态会自动更新。`);
+      navigate(`/operations?job=${queued.jobId}`, { replace: true, scroll: false });
       load();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "任务启动失败");
@@ -112,7 +129,8 @@ export function OperationsPage() {
         </div>
       </section>
 
-      {actionError && <div className="form-error standalone-error">{actionError}</div>}
+      {actionError && <div className="form-error standalone-error" role="alert">{actionError}</div>}
+      {actionMessage && <div className="form-success standalone-error" role="status">{actionMessage}</div>}
 
       <section className="operations-band">
         <div>
@@ -198,7 +216,12 @@ export function OperationsPage() {
           </header>
           {status.jobs.length ? (
             status.jobs.map((job) => (
-              <div className="job-row" key={job.id}>
+              <div
+                id={`job-${job.id}`}
+                className={`job-row ${highlightedJobId === job.id ? "job-row--highlighted" : ""}`}
+                key={job.id}
+                aria-current={highlightedJobId === job.id ? "true" : undefined}
+              >
                 <i className={`job-dot job-dot--${job.status.toLowerCase()}`} />
                 <div>
                   <strong>{jobTypeLabel(job.type)}</strong>

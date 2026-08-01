@@ -4,10 +4,11 @@ import {
   CheckCircle2,
   CircleAlert,
   ExternalLink,
+  Pencil,
   RefreshCw,
   ShieldAlert,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   DimensionScore,
   OpportunityDetail,
@@ -18,13 +19,16 @@ import {
   Delta,
   ErrorState,
   LoadingState,
+  Modal,
   PlatformBadge,
   ResearchStatusBadge,
   Score,
   VerdictBadge,
 } from "../components";
+import { OpportunityForm } from "../forms";
 import { shortDate } from "../format";
-import { useNavigate, usePath } from "../router";
+import { useNavigate, usePath, useSearch } from "../router";
+import { useJobPolling } from "../use-job";
 
 const categoryLabels = {
   SEARCH: "搜索需求",
@@ -59,21 +63,51 @@ function DimensionGrid({ dimensions }: { dimensions: DimensionScore[] }) {
 export function OpportunityDetailPage() {
   const id = usePath().split("/")[2];
   const navigate = useNavigate();
+  const search = useSearch();
   const [detail, setDetail] = useState<OpportunityDetail | null>(null);
   const [error, setError] = useState("");
   const [researching, setResearching] = useState(false);
   const [researchError, setResearchError] = useState("");
   const [researchMessage, setResearchMessage] = useState("");
+  const [researchJobId, setResearchJobId] = useState<string | null>(null);
+  const [limit, setLimit] = useState(20);
+  const [editing, setEditing] = useState(false);
+  const { job: researchJob, error: researchJobError } = useJobPolling(researchJobId);
 
-  function load() {
+  const load = useCallback((signal?: AbortSignal) => {
     if (!id) return;
     setError("");
-    api<OpportunityDetail>(`/api/opportunities/${id}`)
+    api<OpportunityDetail>(`/api/opportunities/${id}?limit=${limit}`, { signal })
       .then(setDetail)
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "读取失败"));
-  }
+      .catch((caught) => {
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        setError(caught instanceof Error ? caught.message : "读取失败");
+      });
+  }, [id, limit]);
 
-  useEffect(load, [id]);
+  useEffect(() => {
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  useEffect(() => {
+    if (researchJob?.status === "COMPLETED") {
+      setResearchMessage("当前候选调研已完成，结论和证据已经更新。");
+      setResearchError("");
+      load();
+    } else if (researchJob?.status === "PARTIAL") {
+      setResearchMessage("调研任务已结束，成功结果已经保存。");
+      setResearchError(researchJob.error || "任务包含失败结果");
+      load();
+    } else if (researchJob?.status === "FAILED") {
+      setResearchError(researchJob.error || "当前候选调研失败");
+    }
+  }, [load, researchJob]);
+
+  useEffect(() => {
+    if (researchJobError) setResearchError(researchJobError);
+  }, [researchJobError]);
 
   async function submitResearch(
     force: boolean,
@@ -89,10 +123,10 @@ export function OpportunityDetailPage() {
         },
       );
       if ("queued" in result) {
+        setResearchJobId(result.jobId);
         setResearchMessage(
-          "已加入低成本批量调研队列。任务将在后台使用缓存、Labs 和 Standard 数据完成，可在运行状态中查看进度。",
+          "只针对当前候选的调研任务已启动，页面会持续跟踪到完成。",
         );
-        window.setTimeout(load, 2_000);
         return;
       }
       setResearchMessage(
@@ -145,23 +179,31 @@ export function OpportunityDetailPage() {
     }
   }
 
-  if (error) return <ErrorState message={error} retry={load} />;
+  if (error) return <ErrorState message={error} retry={() => load()} />;
   if (!detail) return <LoadingState label="正在读取完整调研档案" />;
 
-  const { opportunity, evidence, reports, signals } = detail;
+  const { opportunity, evidence, reportEvidence, reports, signals, totals } = detail;
   const report = reports[0];
-  const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+  const evidenceById = new Map(reportEvidence.map((item) => [item.id, item]));
+  const from = new URLSearchParams(search).get("from");
+  const radarReturn = from?.startsWith("?") ? `/radar${from}` : "/radar";
+  const researchBusy = researching || researchJob?.status === "RUNNING";
+  const canLoadMore =
+    limit < 100 &&
+    (evidence.length < totals.evidence ||
+      reports.length < totals.reports ||
+      signals.length < totals.signals);
 
   return (
     <div className="detail-page">
-      <button className="back-link" onClick={() => navigate("/radar")}>
+      <button className="back-link" onClick={() => navigate(radarReturn)}>
         <ArrowLeft size={15} /> 返回雷达库
       </button>
 
       <section className="detail-head">
         <div className="detail-head__title">
           <div className="detail-head__badges">
-            {opportunity.researchStatus === "READY" ? (
+            {opportunity.decisionCurrent ? (
               <VerdictBadge verdict={opportunity.verdict} />
             ) : (
               <ResearchStatusBadge status={opportunity.researchStatus} />
@@ -172,21 +214,37 @@ export function OpportunityDetailPage() {
           <h2>{opportunity.name}</h2>
           <p>{opportunity.oneLiner}</p>
           <span className="detail-target">目标用户：{opportunity.targetUser}</span>
+          <button className="text-button detail-edit" onClick={() => setEditing(true)}>
+            <Pencil size={14} /> 编辑候选定义
+          </button>
         </div>
         <div className="detail-head__score">
-          <Score
-            value={opportunity.score}
-            status={opportunity.researchStatus}
-            size="large"
-          />
-          {opportunity.researchStatus === "READY" && (
+          {opportunity.decisionCurrent ? (
+            <Score value={opportunity.score} size="large" />
+          ) : (
+            <div className="pending-decision-score">
+              <strong>—</strong>
+              <span>等待形成当前评分</span>
+            </div>
+          )}
+          {opportunity.decisionCurrent ? (
             <div>
               <Delta value={opportunity.scoreDelta} />
               <span>{opportunity.confidence}% 置信度</span>
             </div>
-          )}
+          ) : null}
         </div>
       </section>
+
+      {!opportunity.decisionCurrent && report && (
+        <div className="stale-decision" role="status">
+          <CircleAlert size={18} />
+          <div>
+            <strong>下面是上一次历史判断，不是当前推荐</strong>
+            <p>{opportunity.changeSummary}</p>
+          </div>
+        </div>
+      )}
 
       <div className="detail-grid">
         <div className="detail-main">
@@ -194,17 +252,17 @@ export function OpportunityDetailPage() {
             <header className="panel__header">
               <div>
                 <span className="eyebrow">FINAL JUDGMENT</span>
-                <h2>为什么这样判断</h2>
+                <h2>{opportunity.decisionCurrent ? "为什么这样判断" : "上一次如何判断"}</h2>
               </div>
               {report && <span className="version-chip">V{report.version} · {report.providerMode}</span>}
             </header>
 
             {report ? (
               <>
-                <div className="judgment-callout">
+                <div className={`judgment-callout ${opportunity.decisionCurrent ? "" : "judgment-callout--historic"}`}>
                   <ArrowRight size={19} />
                   <div>
-                    <span>建议下一步</span>
+                    <span>{opportunity.decisionCurrent ? "建议下一步" : "当时建议"}</span>
                     <strong>{report.recommendedAction}</strong>
                   </div>
                 </div>
@@ -266,13 +324,13 @@ export function OpportunityDetailPage() {
             <header className="panel__header">
               <div>
                 <span className="eyebrow">EVIDENCE LEDGER</span>
-                <h2>本次判断用了哪些数据</h2>
+                <h2>本次报告实际使用的证据</h2>
               </div>
-              <span className="panel-count">{evidence.length} 条证据</span>
+              <span className="panel-count">{reportEvidence.length} 条证据</span>
             </header>
-            {evidence.length ? (
+            {reportEvidence.length ? (
               <div className="evidence-list">
-                {evidence.map((item) => (
+                {reportEvidence.map((item) => (
                   <article className="evidence" key={item.id}>
                     <div className="evidence__kind">
                       <span>{categoryLabels[item.category]}</span>
@@ -298,7 +356,45 @@ export function OpportunityDetailPage() {
                 ))}
               </div>
             ) : (
-              <p className="muted">执行首次调研后，这里会出现带来源的数据。</p>
+              <p className="muted">首次调研完成后，这里会固定保存该报告实际使用的证据快照。</p>
+            )}
+          </section>
+
+          <section className="panel">
+            <header className="panel__header">
+              <div>
+                <span className="eyebrow">CURRENT EVIDENCE</span>
+                <h2>当前证据库</h2>
+              </div>
+              <span className="panel-count">显示 {evidence.length} / {totals.evidence}</span>
+            </header>
+            {evidence.length ? (
+              <div className="evidence-list evidence-list--current">
+                {evidence.map((item) => (
+                  <article className="evidence" key={item.id}>
+                    <div className="evidence__kind">
+                      <span>{categoryLabels[item.category]}</span>
+                      <small>{item.sourceName}</small>
+                    </div>
+                    <div className="evidence__body">
+                      <strong>{item.summary}</strong>
+                      {item.rawExcerpt && <blockquote>“{item.rawExcerpt}”</blockquote>}
+                      <span>采集于 {shortDate(item.collectedAt)} · 强度 {item.strength}/100</span>
+                    </div>
+                    <div className="evidence__metric">
+                      <strong>{item.value === null ? "定性" : item.value.toLocaleString()}</strong>
+                      <span>{item.unit}</span>
+                      {item.sourceUrl && (
+                        <a href={item.sourceUrl} target="_blank" rel="noreferrer" aria-label="打开来源">
+                          <ExternalLink size={14} />
+                        </a>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">暂无当前证据。</p>
             )}
           </section>
 
@@ -309,6 +405,7 @@ export function OpportunityDetailPage() {
                   <span className="eyebrow">DECISION HISTORY</span>
                   <h2>评分如何变化</h2>
                 </div>
+                <span className="panel-count">显示 {reports.length} / {totals.reports}</span>
               </header>
               <div className="history-list">
                 {reports.map((item) => (
@@ -332,6 +429,21 @@ export function OpportunityDetailPage() {
               </div>
             </section>
           )}
+          {canLoadMore && (
+            <button
+              className="button button--secondary history-load-more"
+              onClick={() => setLimit((value) => Math.min(100, value + 20))}
+            >
+              加载更多证据与历史
+            </button>
+          )}
+          {!canLoadMore &&
+            limit >= 100 &&
+            (totals.evidence > 100 || totals.reports > 100 || totals.signals > 100) && (
+              <p className="muted history-limit-note">
+                为保持页面流畅，这里最多展示各类最新 100 条记录。
+              </p>
+            )}
         </div>
 
         <aside className="detail-aside">
@@ -344,23 +456,31 @@ export function OpportunityDetailPage() {
             <button
               className="button button--orange button--full"
               onClick={() => research(false)}
-              disabled={researching}
+              disabled={researchBusy}
             >
-              <RefreshCw className={researching ? "spin" : ""} size={16} />
-              {researching ? "检查数据中…" : report ? "检查并更新" : "开始调研"}
+              <RefreshCw className={researchBusy ? "spin" : ""} size={16} />
+              {researchBusy ? "当前候选调研中…" : report ? "检查并更新" : "开始调研"}
             </button>
             {report && (
               <button
                 className="button button--ghost button--full"
                 onClick={() => research(true)}
-                disabled={researching}
+                disabled={researchBusy}
               >
                 强制刷新付费数据
               </button>
             )}
-            {researchError && <div className="form-error">{researchError}</div>}
-            {researchMessage && <div className="form-success">{researchMessage}</div>}
-            <small>最近调研：{shortDate(opportunity.lastResearchedAt)}</small>
+            {researchError && <div className="form-error" role="alert">{researchError}</div>}
+            {researchMessage && <div className="form-success" role="status">{researchMessage}</div>}
+            {researchJobId && (
+              <button
+                className="text-button"
+                onClick={() => navigate(`/operations?job=${researchJobId}`)}
+              >
+                查看任务 {researchJobId.slice(0, 8)}
+              </button>
+            )}
+            <small>上次完成调研：{shortDate(opportunity.lastResearchedAt)}</small>
           </section>
 
           {report && (
@@ -410,7 +530,7 @@ export function OpportunityDetailPage() {
           {signals.length > 0 && (
             <section className="side-panel">
               <span className="eyebrow">ORIGIN</span>
-              <h3>关联信号</h3>
+              <h3>关联信号 · {signals.length}/{totals.signals}</h3>
               {signals.map((signal) => (
                 <div className="linked-signal" key={signal.id}>
                   <strong>{signal.title}</strong>
@@ -421,6 +541,22 @@ export function OpportunityDetailPage() {
           )}
         </aside>
       </div>
+      <Modal
+        title="编辑候选定义"
+        subtitle="修改会使当前结论失效，但会完整保留历史报告与上次调研时间。"
+        open={editing}
+        onClose={() => setEditing(false)}
+      >
+        <OpportunityForm
+          opportunity={opportunity}
+          onCancel={() => setEditing(false)}
+          onSaved={(saved) => {
+            setDetail((current) => current ? { ...current, opportunity: saved } : current);
+            setResearchMessage("候选定义已保存，旧结论已标记为历史，等待重新调研。");
+            setEditing(false);
+          }}
+        />
+      </Modal>
     </div>
   );
 }

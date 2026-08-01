@@ -18,6 +18,7 @@ function opportunity(id: string, name: string): Opportunity {
     recommendedPlatform: "WEB",
     verdict: "WATCH",
     researchStatus: "UNRESEARCHED",
+    decisionCurrent: false,
     score: 0,
     scoreDelta: 0,
     confidence: 0,
@@ -34,6 +35,7 @@ function opportunity(id: string, name: string): Opportunity {
     createdAt: "2026-07-30T00:00:00.000Z",
     updatedAt: "2026-07-30T00:00:00.000Z",
     lastResearchedAt: null,
+    staleSince: null,
   };
 }
 

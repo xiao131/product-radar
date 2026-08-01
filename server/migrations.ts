@@ -264,6 +264,22 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    name: "decision invalidation watermark",
+    up(db) {
+      db.exec(`
+        ALTER TABLE opportunities ADD COLUMN stale_since TEXT;
+
+        UPDATE opportunities
+        SET stale_since = updated_at
+        WHERE research_status != 'READY';
+
+        CREATE INDEX IF NOT EXISTS idx_opportunity_stale
+          ON opportunities(stale_since, research_status);
+      `);
+    },
+  },
 ];
 
 export function migrateDatabase(db: Database.Database) {

@@ -11,7 +11,7 @@ import {
   Activity,
   X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { NavLink, usePath } from "./router";
 
@@ -57,6 +57,12 @@ export function AppLayout({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [settingsError, setSettingsError] = useState(false);
+  const [isMobile, setIsMobile] = useState(() =>
+    window.matchMedia("(max-width: 900px)").matches,
+  );
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const path = usePath();
   const title =
     pageTitles[path] ??
@@ -64,14 +70,48 @@ export function AppLayout({
       ? { title: "机会调研档案", subtitle: "查看结论、证据与每次重新评分。" }
       : { title: "产品雷达", subtitle: "" });
 
+  const loadSettings = useCallback(() => {
+    setSettingsError(false);
+    api<Settings>("/api/settings")
+      .then(setSettings)
+      .catch(() => setSettingsError(true));
+  }, []);
+
+  useEffect(loadSettings, [loadSettings]);
+
   useEffect(() => {
-    api<Settings>("/api/settings").then(setSettings).catch(() => null);
-    setMenuOpen(false);
+    const media = window.matchMedia("(max-width: 900px)");
+    const update = () => setIsMobile(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    setMenuOpen((wasOpen) => {
+      if (wasOpen) {
+        window.requestAnimationFrame(() => menuButtonRef.current?.focus());
+      }
+      return false;
+    });
   }, [path]);
+
+  function openMenu() {
+    setMenuOpen(true);
+    window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+  }
+
+  function closeMenu() {
+    setMenuOpen(false);
+    window.requestAnimationFrame(() => menuButtonRef.current?.focus());
+  }
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${menuOpen ? "sidebar--open" : ""}`}>
+      <aside
+        className={`sidebar ${menuOpen ? "sidebar--open" : ""}`}
+        aria-hidden={isMobile && !menuOpen ? true : undefined}
+        inert={isMobile && !menuOpen ? true : undefined}
+      >
         <div className="brand">
           <div className="brand__mark">
             <Radar size={22} strokeWidth={1.8} />
@@ -81,9 +121,10 @@ export function AppLayout({
             <span>百站计划 · 决策系统</span>
           </div>
           <button
+            ref={closeButtonRef}
             className="icon-button mobile-only"
             aria-label="关闭菜单"
-            onClick={() => setMenuOpen(false)}
+            onClick={closeMenu}
           >
             <X size={19} />
           </button>
@@ -129,13 +170,38 @@ export function AppLayout({
             <Database size={16} />
             <span>RESEARCH ENGINE</span>
           </div>
-          <strong>{settings?.researchMode === "REAL" ? "真实数据模式" : "演示数据模式"}</strong>
+          <strong>
+            {settings
+              ? settings.researchMode === "REAL"
+                ? "真实数据模式"
+                : "演示数据模式"
+              : settingsError
+                ? "模式状态未知"
+                : "正在读取模式"}
+          </strong>
           <p>
-            {settings?.researchMode === "REAL"
-              ? `${settings.aiProvider} / ${settings.aiModel} · 数据源已连接`
-              : "使用可重复的模拟证据，不冒充真实市场调研。"}
+            {settings
+              ? settings.researchMode === "REAL"
+                ? `${settings.aiProvider} / ${settings.aiModel} · 数据源已连接`
+                : "使用可重复的模拟证据，不冒充真实市场调研。"
+              : settingsError
+                ? "设置读取失败，不能确认当前数据模式。"
+                : "正在读取研究引擎状态…"}
           </p>
-          <i className={settings?.researchMode === "REAL" ? "status-dot status-dot--live" : "status-dot"} />
+          {settingsError && (
+            <button className="system-card__retry" onClick={loadSettings}>
+              重试
+            </button>
+          )}
+          <i
+            className={
+              settings?.researchMode === "REAL"
+                ? "status-dot status-dot--live"
+                : settings
+                  ? "status-dot"
+                  : "status-dot status-dot--unknown"
+            }
+          />
         </div>
         {authRequired && (
           <button className="sidebar-logout" onClick={onLogout}>
@@ -145,14 +211,22 @@ export function AppLayout({
         )}
       </aside>
 
-      {menuOpen && <div className="sidebar-scrim" onClick={() => setMenuOpen(false)} />}
+      {menuOpen && (
+        <button
+          className="sidebar-scrim"
+          aria-label="关闭菜单"
+          onClick={closeMenu}
+        />
+      )}
 
       <main className="main">
         <header className="topbar">
           <button
+            ref={menuButtonRef}
             className="icon-button mobile-only"
             aria-label="打开菜单"
-            onClick={() => setMenuOpen(true)}
+            aria-expanded={menuOpen}
+            onClick={openMenu}
           >
             <Menu size={20} />
           </button>

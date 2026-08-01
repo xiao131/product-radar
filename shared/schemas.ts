@@ -2,6 +2,24 @@ import { z } from "zod";
 
 export const platformSchema = z.enum(["WEB", "IOS", "WEB_AND_IOS"]);
 export const verdictSchema = z.enum(["BUILD_NOW", "VALIDATE_FIRST", "WATCH", "SKIP"]);
+export const httpUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  }, "只允许不含用户名或密码的 HTTP/HTTPS 链接");
+
+const optionalHttpUrlSchema = z.union([
+  httpUrlSchema,
+  z.literal(""),
+  z.null(),
+]);
 export const signalSourceSchema = z.enum([
   "IDEA",
   "REDDIT",
@@ -19,7 +37,7 @@ export const createProductSchema = z.object({
   name: z.string().trim().min(2).max(100),
   platform: platformSchema,
   status: z.enum(["IDEA", "BUILDING", "LIVE", "PAUSED", "ARCHIVED"]).default("LIVE"),
-  url: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
+  url: optionalHttpUrlSchema.optional(),
   description: z.string().trim().max(600).default(""),
   currentFocus: z.string().trim().max(300).default(""),
 });
@@ -30,7 +48,7 @@ export const createSignalSchema = z.object({
   sourceType: signalSourceSchema.default("IDEA"),
   title: z.string().trim().min(2).max(140),
   content: z.string().trim().min(3).max(10_000),
-  sourceUrl: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
+  sourceUrl: optionalHttpUrlSchema.optional(),
   tags: z.array(z.string().trim().min(1).max(40)).max(12).default([]),
 });
 

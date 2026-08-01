@@ -11,24 +11,26 @@ import {
 
 interface NavigateOptions {
   replace?: boolean;
+  scroll?: boolean;
 }
 
 interface RouterContextValue {
   path: string;
+  search: string;
   navigate: (to: string, options?: NavigateOptions) => void;
 }
 
 const RouterContext = createContext<RouterContextValue | null>(null);
 
-function currentPath() {
-  return window.location.pathname;
+function currentLocation() {
+  return `${window.location.pathname}${window.location.search}`;
 }
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const [path, setPath] = useState(currentPath);
+  const [location, setLocation] = useState(currentLocation);
 
   useEffect(() => {
-    const onPopState = () => setPath(currentPath());
+    const onPopState = () => setLocation(currentLocation());
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -39,11 +41,19 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     } else {
       window.history.pushState(null, "", to);
     }
-    setPath(currentPath());
-    window.scrollTo({ top: 0, behavior: "instant" });
+    setLocation(currentLocation());
+    if (options?.scroll !== false) {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
   }, []);
 
-  const value = useMemo(() => ({ path, navigate }), [navigate, path]);
+  const queryIndex = location.indexOf("?");
+  const path = queryIndex >= 0 ? location.slice(0, queryIndex) : location;
+  const search = queryIndex >= 0 ? location.slice(queryIndex) : "";
+  const value = useMemo(
+    () => ({ path, search, navigate }),
+    [navigate, path, search],
+  );
   return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
 }
 
@@ -55,6 +65,10 @@ function useRouter() {
 
 export function usePath() {
   return useRouter().path;
+}
+
+export function useSearch() {
+  return useRouter().search;
 }
 
 export function useNavigate() {

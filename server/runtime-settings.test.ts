@@ -59,6 +59,18 @@ describe("runtime settings", () => {
     ]);
     expect(runtimeSettingsResponse(config)).not.toHaveProperty("aiApiKey");
 
+    const preferenceRow = database
+      .prepare("SELECT value_json FROM settings WHERE key = 'runtime_preferences_v1'")
+      .get() as { value_json: string };
+    const legacyPreferences = JSON.parse(preferenceRow.value_json) as Record<
+      string,
+      unknown
+    >;
+    delete legacyPreferences.researchAiConcurrency;
+    database
+      .prepare("UPDATE settings SET value_json = ? WHERE key = 'runtime_preferences_v1'")
+      .run(JSON.stringify(legacyPreferences));
+
     const restarted = createTestConfig({
       sessionSecret: config.sessionSecret,
       availableResearchMarkets: config.availableResearchMarkets,
@@ -67,6 +79,7 @@ describe("runtime settings", () => {
     expect(restarted.anthropicApiKey).toBe("secret-provider-key");
     expect(restarted.aiModel).toBe("claude-opus-5");
     expect(restarted.aiRequestTimeoutMs).toBe(600_000);
+    expect(restarted.researchAiConcurrency).toBe(1);
     database.close();
   });
 });

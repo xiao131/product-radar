@@ -9,6 +9,7 @@ import type {
 type Row = Record<string, unknown>;
 
 export function mapOpportunity(row: Row): Opportunity {
+  const researchStatus = row.research_status as Opportunity["researchStatus"];
   return {
     id: String(row.id),
     name: String(row.name),
@@ -17,7 +18,8 @@ export function mapOpportunity(row: Row): Opportunity {
     sourceType: row.source_type as Opportunity["sourceType"],
     recommendedPlatform: row.recommended_platform as Opportunity["recommendedPlatform"],
     verdict: row.verdict as Opportunity["verdict"],
-    researchStatus: row.research_status as Opportunity["researchStatus"],
+    researchStatus,
+    decisionCurrent: researchStatus === "READY" && !row.stale_since,
     score: Number(row.score),
     scoreDelta: Number(row.score_delta),
     confidence: Number(row.confidence),
@@ -36,6 +38,7 @@ export function mapOpportunity(row: Row): Opportunity {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     lastResearchedAt: row.last_researched_at ? String(row.last_researched_at) : null,
+    staleSince: row.stale_since ? String(row.stale_since) : null,
   };
 }
 

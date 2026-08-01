@@ -409,8 +409,8 @@ export function SettingsPage() {
           <li><ShieldCheck size={15} />API Key 仅加密保存，不会返回浏览器</li>
           <li><Coins size={15} />自动发现每日上限 ${form.maxDataForSeoDiscoveryCostPerDayUsd.toFixed(2)}</li>
         </ul>
-        {feedback && <div className="form-success">{feedback}</div>}
-        {error && <div className="form-error">{error}</div>}
+        {feedback && <div className="form-success" role="status">{feedback}</div>}
+        {error && <div className="form-error" role="alert">{error}</div>}
         <button className="button button--secondary button--full" disabled={testing || saving} onClick={() => void testAi()}>
           {testing ? <LoaderCircle className="spin" size={16} /> : <Bot size={16} />}
           {testing ? "正在测试连接…" : "测试 AI 连接"}

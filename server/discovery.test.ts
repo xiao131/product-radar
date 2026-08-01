@@ -160,10 +160,8 @@ describe("automatic discovery persistence", () => {
       research_status: string;
       last_researched_at: string | null;
     };
-    expect(refreshedOpportunity).toEqual({
-      research_status: "UNRESEARCHED",
-      last_researched_at: null,
-    });
+    expect(refreshedOpportunity.research_status).toBe("UNRESEARCHED");
+    expect(refreshedOpportunity.last_researched_at).not.toBeNull();
 
     const counts = database
       .prepare(

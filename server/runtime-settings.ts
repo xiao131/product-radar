@@ -5,6 +5,7 @@ import {
   randomBytes,
 } from "node:crypto";
 import { z } from "zod";
+import { httpUrlSchema } from "../shared/schemas.js";
 import type { AiProvider, AppConfig } from "./config.js";
 import type { RadarDatabase } from "./db.js";
 
@@ -14,8 +15,8 @@ const SECRET_PREFIX = "encrypted_ai_key_v1:";
 const storedRuntimeSettingsSchema = z.object({
   aiProvider: z.enum(["openai", "anthropic", "gateway"]),
   aiModel: z.string().trim().min(1).max(120),
-  openAiBaseUrl: z.string().url(),
-  anthropicBaseUrl: z.string().url(),
+  openAiBaseUrl: httpUrlSchema,
+  anthropicBaseUrl: httpUrlSchema,
   aiRequestTimeoutMs: z.number().int().min(30_000).max(30 * 60 * 1_000),
   researchAiConcurrency: z.number().int().min(1).max(3).default(1),
   providerMaxRetries: z.number().int().min(0).max(3),
@@ -68,7 +69,8 @@ export const runtimeSettingsUpdateSchema = z
   .superRefine((value, context) => {
     if (value.aiProvider !== "gateway") {
       try {
-        new URL(value.aiBaseUrl);
+        const parsed = httpUrlSchema.safeParse(value.aiBaseUrl);
+        if (!parsed.success) throw new Error(parsed.error.issues[0]?.message);
       } catch {
         context.addIssue({
           code: "custom",

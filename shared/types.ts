@@ -55,6 +55,7 @@ export interface Opportunity {
   recommendedPlatform: Platform;
   verdict: Verdict;
   researchStatus: ResearchStatus;
+  decisionCurrent: boolean;
   score: number;
   scoreDelta: number;
   confidence: number;
@@ -73,6 +74,7 @@ export interface Opportunity {
   createdAt: string;
   updatedAt: string;
   lastResearchedAt: string | null;
+  staleSince: string | null;
 }
 
 export interface EvidenceItem {
@@ -173,9 +175,27 @@ export interface BatchResearchResult {
 
 export interface OpportunityDetail {
   opportunity: Opportunity;
+  reportEvidence: EvidenceItem[];
   evidence: EvidenceItem[];
   reports: ResearchReport[];
   signals: Signal[];
+  totals: {
+    evidence: number;
+    reports: number;
+    signals: number;
+  };
+  limit: number;
+}
+
+export interface JobRun {
+  id: string;
+  type: string;
+  trigger: string;
+  status: "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED";
+  error: string | null;
+  result?: Record<string, unknown>;
+  startedAt: string;
+  finishedAt: string | null;
 }
 
 export interface Product {
@@ -300,15 +320,7 @@ export interface OperationsStatus {
     refreshedCandidates: number;
     collectionReused: boolean;
   };
-  jobs: Array<{
-    id: string;
-    type: string;
-    trigger: string;
-    status: string;
-    error: string | null;
-    startedAt: string;
-    finishedAt: string | null;
-  }>;
+  jobs: JobRun[];
   latestBackup: {
     status: string;
     fileName: string | null;
