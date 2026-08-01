@@ -684,7 +684,10 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
             executionConfig,
             "manual",
             "standard",
-            input.force ? [opportunity.id] : [],
+            {
+              targetOpportunityIds: [opportunity.id],
+              forceRefreshIds: input.force ? [opportunity.id] : [],
+            },
           );
           response.status(202).json({
             queued: true,

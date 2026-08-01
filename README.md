@@ -338,6 +338,7 @@ npm run research:batch
 | `AI_REASONING_EFFORT` | `xhigh` | 否 | Responses 推理强度：`none`/`low`/`medium`/`high`/`xhigh`/`max` |
 | `AI_DISABLE_RESPONSE_STORAGE` | `true` | 否 | 为 `true` 时向 Responses API 发送 `store=false` |
 | `AI_REQUEST_TIMEOUT_MS` | `600000` | 否 | 单次 AI 生成最长等待时间；独立于数据供应商请求超时 |
+| `RESEARCH_AI_CONCURRENCY` | `1` | 否 | 同时调研的候选数，建议保持 1 以降低 AI 中转计费服务的并发失败 |
 | `AUTO_DISCOVERY_ENABLED` | 真实模式为 `true` | 否 | 启用互联网/API 自动发现候选 |
 | `DISCOVERY_LABS_LIMIT` | `100` | 否 | 单个支持市场每次 Labs 候选关键词上限 |
 | `DISCOVERY_LABS_FRESHNESS_DAYS` | `30` | 否 | Labs 发现数据每市场最短重购间隔 |

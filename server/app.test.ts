@@ -336,6 +336,7 @@ describe("Product Radar API", () => {
         aiBaseUrl: "https://relay.example",
         aiApiKey: "test-secret-key",
         aiRequestTimeoutSeconds: 600,
+        researchAiConcurrency: 1,
         providerMaxRetries: 1,
         discoveryAiSignalLimit: 60,
         discoveryAiMaxBatchesPerRun: 5,

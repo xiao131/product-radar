@@ -19,6 +19,7 @@ import {
   ErrorState,
   LoadingState,
   PlatformBadge,
+  ResearchStatusBadge,
   Score,
   VerdictBadge,
 } from "../components";
@@ -160,7 +161,11 @@ export function OpportunityDetailPage() {
       <section className="detail-head">
         <div className="detail-head__title">
           <div className="detail-head__badges">
-            <VerdictBadge verdict={opportunity.verdict} />
+            {opportunity.researchStatus === "READY" ? (
+              <VerdictBadge verdict={opportunity.verdict} />
+            ) : (
+              <ResearchStatusBadge status={opportunity.researchStatus} />
+            )}
             <PlatformBadge platform={opportunity.recommendedPlatform} />
             <span className="source-chip">{opportunity.sourceType}</span>
           </div>
@@ -169,11 +174,17 @@ export function OpportunityDetailPage() {
           <span className="detail-target">目标用户：{opportunity.targetUser}</span>
         </div>
         <div className="detail-head__score">
-          <Score value={opportunity.score} size="large" />
-          <div>
-            <Delta value={opportunity.scoreDelta} />
-            <span>{opportunity.confidence}% 置信度</span>
-          </div>
+          <Score
+            value={opportunity.score}
+            status={opportunity.researchStatus}
+            size="large"
+          />
+          {opportunity.researchStatus === "READY" && (
+            <div>
+              <Delta value={opportunity.scoreDelta} />
+              <span>{opportunity.confidence}% 置信度</span>
+            </div>
+          )}
         </div>
       </section>
 

@@ -24,6 +24,7 @@ describe("runtime settings", () => {
       aiBaseUrl: "https://relay.example",
       aiApiKey: "secret-provider-key",
       aiRequestTimeoutSeconds: 600,
+      researchAiConcurrency: 1,
       providerMaxRetries: 1,
       discoveryAiSignalLimit: 60,
       discoveryAiMaxBatchesPerRun: 5,
@@ -51,6 +52,7 @@ describe("runtime settings", () => {
     expect(config.anthropicApiKey).toBe("secret-provider-key");
     expect(config.anthropicBaseUrl).toBe("https://relay.example/v1");
     expect(config.aiRequestTimeoutMs).toBe(600_000);
+    expect(config.researchAiConcurrency).toBe(1);
     expect(config.researchMarkets.map((market) => market.countryCode)).toEqual([
       "US",
       "CN",

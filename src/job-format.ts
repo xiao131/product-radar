@@ -13,6 +13,7 @@ const jobTriggerLabels: Record<string, string> = {
 const jobStatusLabels: Record<string, string> = {
   RUNNING: "运行中",
   COMPLETED: "已完成",
+  PARTIAL: "部分失败",
   FAILED: "失败",
 };
 

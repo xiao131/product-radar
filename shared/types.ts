@@ -327,6 +327,7 @@ export interface RuntimeSettings {
   aiKeyConfigured: boolean;
   searchConfigured: boolean;
   aiRequestTimeoutSeconds: number;
+  researchAiConcurrency: number;
   providerMaxRetries: number;
   discoveryAiSignalLimit: number;
   discoveryAiMaxBatchesPerRun: number;

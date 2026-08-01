@@ -1,9 +1,40 @@
 import { type FormEvent, type ReactNode, useEffect } from "react";
 import { ArrowDown, ArrowUp, LoaderCircle, X } from "lucide-react";
-import type { Opportunity, Platform, Verdict } from "../shared/types";
+import type {
+  Opportunity,
+  Platform,
+  ResearchStatus,
+  Verdict,
+} from "../shared/types";
 import { platformLabels, verdictLabels } from "./format";
 
-export function Score({ value, size = "normal" }: { value: number; size?: "normal" | "large" }) {
+const researchScoreLabels: Record<Exclude<ResearchStatus, "READY">, string> = {
+  UNRESEARCHED: "未评分",
+  RUNNING: "调研中",
+  FAILED: "调研失败",
+};
+
+export function Score({
+  value,
+  status = "READY",
+  size = "normal",
+}: {
+  value: number;
+  status?: ResearchStatus;
+  size?: "normal" | "large";
+}) {
+  if (status !== "READY") {
+    const label = researchScoreLabels[status];
+    return (
+      <div
+        className={`score score--${size} score--pending`}
+        aria-label={label}
+      >
+        <span>—</span>
+        <small>{label}</small>
+      </div>
+    );
+  }
   return (
     <div className={`score score--${size}`} aria-label={`评分 ${value}`}>
       <span>{value}</span>
@@ -27,6 +58,21 @@ export function VerdictBadge({ verdict }: { verdict: Verdict }) {
   return (
     <span className={`verdict verdict--${verdict.toLowerCase()}`}>
       {verdictLabels[verdict]}
+    </span>
+  );
+}
+
+const researchStatusLabels: Record<ResearchStatus, string> = {
+  UNRESEARCHED: "待调研",
+  RUNNING: "调研中",
+  FAILED: "调研失败",
+  READY: "结论有效",
+};
+
+export function ResearchStatusBadge({ status }: { status: ResearchStatus }) {
+  return (
+    <span className={`research-status research-status--${status.toLowerCase()}`}>
+      {researchStatusLabels[status]}
     </span>
   );
 }
@@ -159,14 +205,20 @@ export function OpportunityRow({
   if (compact) {
     return (
       <button className="opportunity-compact" onClick={onClick}>
-        <Score value={item.score} />
+        <Score value={item.score} status={item.researchStatus} />
         <div className="opportunity-compact__body">
           <strong>{item.name}</strong>
           <span>{item.oneLiner}</span>
         </div>
         <div className="opportunity-compact__meta">
-          <Delta value={item.scoreDelta} />
-          <VerdictBadge verdict={item.verdict} />
+          {item.researchStatus === "READY" ? (
+            <>
+              <Delta value={item.scoreDelta} />
+              <VerdictBadge verdict={item.verdict} />
+            </>
+          ) : (
+            <ResearchStatusBadge status={item.researchStatus} />
+          )}
         </div>
       </button>
     );
@@ -175,22 +227,32 @@ export function OpportunityRow({
   return (
     <tr className="clickable-row" onClick={onClick}>
       <td>
-        <Score value={item.score} />
+        <Score value={item.score} status={item.researchStatus} />
       </td>
       <td className="opportunity-name">
         <strong>{item.name}</strong>
         <span>{item.oneLiner}</span>
       </td>
       <td>
-        <VerdictBadge verdict={item.verdict} />
+        {item.researchStatus === "READY" ? (
+          <VerdictBadge verdict={item.verdict} />
+        ) : (
+          <ResearchStatusBadge status={item.researchStatus} />
+        )}
       </td>
       <td>
         <PlatformBadge platform={item.recommendedPlatform} />
       </td>
       <td>
-        <Delta value={item.scoreDelta} />
+        {item.researchStatus === "READY" ? (
+          <Delta value={item.scoreDelta} />
+        ) : (
+          <span className="muted">—</span>
+        )}
       </td>
-      <td className="mono muted">{item.confidence}%</td>
+      <td className="mono muted">
+        {item.researchStatus === "READY" ? `${item.confidence}%` : "—"}
+      </td>
     </tr>
   );
 }

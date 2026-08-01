@@ -20,6 +20,7 @@ export function createTestConfig(
     aiReasoningEffort: "xhigh",
     aiDisableResponseStorage: true,
     aiRequestTimeoutMs: 1_000,
+    researchAiConcurrency: 1,
     marketLocationCode: 2840,
     marketLanguageCode: "en",
     marketCountryCode: "US",

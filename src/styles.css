@@ -642,6 +642,21 @@ textarea:focus-visible {
   font-size: 8px;
 }
 
+.score--pending {
+  align-items: center;
+  gap: 7px;
+  color: #7d827d;
+}
+
+.score--pending span {
+  letter-spacing: 0;
+}
+
+.score--pending small {
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .score--large span {
   font-size: 64px;
 }
@@ -672,7 +687,8 @@ textarea:focus-visible {
   color: #7b817c;
 }
 
-.verdict {
+.verdict,
+.research-status {
   display: inline-flex;
   align-items: center;
   min-height: 23px;
@@ -681,6 +697,25 @@ textarea:focus-visible {
   font-weight: 700;
   white-space: nowrap;
   border: 1px solid;
+}
+
+.research-status--ready {
+  color: #1d5a3e;
+  background: #dce9df;
+  border-color: #a9c6b2;
+}
+
+.research-status--unresearched,
+.research-status--running {
+  color: #9a4429;
+  background: #f7e2d6;
+  border-color: #dfb49f;
+}
+
+.research-status--failed {
+  color: #983525;
+  background: #f8ded7;
+  border-color: #dca697;
 }
 
 .verdict--build_now {
@@ -2488,6 +2523,10 @@ td {
 
 .job-dot--failed {
   background: var(--red);
+}
+
+.job-dot--partial {
+  background: var(--orange);
 }
 
 .job-dot--running {

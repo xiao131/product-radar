@@ -37,6 +37,7 @@ export interface AppConfig {
   aiReasoningEffort: AiReasoningEffort;
   aiDisableResponseStorage: boolean;
   aiRequestTimeoutMs: number;
+  researchAiConcurrency: number;
   dataForSeoLogin?: string;
   dataForSeoPassword?: string;
   marketLocationCode: number;
@@ -317,6 +318,12 @@ export function loadConfig(): AppConfig {
     aiRequestTimeoutMs: positiveNumber(
       process.env.AI_REQUEST_TIMEOUT_MS,
       10 * 60 * 1_000,
+    ),
+    researchAiConcurrency: integerInRange(
+      process.env.RESEARCH_AI_CONCURRENCY,
+      1,
+      1,
+      3,
     ),
     dataForSeoLogin: process.env.DATAFORSEO_LOGIN,
     dataForSeoPassword: process.env.DATAFORSEO_PASSWORD,

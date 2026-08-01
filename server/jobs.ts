@@ -10,7 +10,36 @@ import { readableAiError } from "./errors.js";
 export class JobAlreadyRunningError extends Error {}
 
 type JobTrigger = "manual" | "scheduled" | "cli";
+type JobCompletionStatus = "COMPLETED" | "PARTIAL" | "FAILED";
 const activeJobs = new WeakMap<RadarDatabase, Set<Promise<unknown>>>();
+
+export function classifyJobResult(
+  jobType: "DISCOVERY" | "RESEARCH" | "BACKUP",
+  result: unknown,
+): { status: JobCompletionStatus; error: string | null } {
+  if (jobType !== "RESEARCH" || !result || typeof result !== "object") {
+    return { status: "COMPLETED", error: null };
+  }
+  const summary = result as {
+    requested?: unknown;
+    failed?: unknown;
+    failures?: Array<{ message?: unknown }>;
+  };
+  const requested = Number(summary.requested ?? 0);
+  const failed = Number(summary.failed ?? 0);
+  if (!Number.isFinite(failed) || failed <= 0) {
+    return { status: "COMPLETED", error: null };
+  }
+  const firstFailure = summary.failures?.find(
+    (failure) => typeof failure.message === "string" && failure.message.trim(),
+  )?.message;
+  const detail = firstFailure ? `：${readableAiError(firstFailure)}` : "";
+  const error = `${failed}/${Math.max(requested, failed)} 个候选调研失败${detail}`;
+  return {
+    status: requested > 0 && failed >= requested ? "FAILED" : "PARTIAL",
+    error,
+  };
+}
 
 function snapshotConfig(config: AppConfig): AppConfig {
   return {
@@ -120,13 +149,33 @@ function startJob<T>(
     try {
       const result = await work(jobId);
       const finishedAt = now();
+      const outcome = classifyJobResult(jobType, result);
       db.prepare(
         `UPDATE job_runs
-         SET status = 'COMPLETED', result_json = ?, finished_at = ?
+         SET status = ?, result_json = ?, error = ?, finished_at = ?
          WHERE id = ?`,
-      ).run(JSON.stringify(result), finishedAt, jobId);
-      logEvent("info", "job_completed", { jobId, jobType, finishedAt });
-      return { jobId, status: "COMPLETED" as const, result };
+      ).run(
+        outcome.status,
+        JSON.stringify(result),
+        outcome.error,
+        finishedAt,
+        jobId,
+      );
+      logEvent(outcome.status === "COMPLETED" ? "info" : "warn", "job_completed", {
+        jobId,
+        jobType,
+        status: outcome.status,
+        finishedAt,
+      });
+      if (outcome.status === "FAILED" && outcome.error) {
+        await sendAlert(
+          config,
+          `${jobType.toLowerCase()}_failed`,
+          outcome.error,
+          jobId,
+        );
+      }
+      return { jobId, status: outcome.status, result };
     } catch (error) {
       const message =
         jobType === "DISCOVERY" || jobType === "RESEARCH"
@@ -211,14 +260,17 @@ export function runResearchJob(
   config: AppConfig,
   trigger: JobTrigger,
   delivery: "live" | "standard",
-  forceOpportunityIds: string[] = [],
+  scope: {
+    targetOpportunityIds?: string[];
+    forceRefreshIds?: string[];
+  } = {},
 ) {
   return startResearchJob(
     db,
     config,
     trigger,
     delivery,
-    forceOpportunityIds,
+    scope,
   ).completion;
 }
 
@@ -227,7 +279,10 @@ export function startResearchJob(
   config: AppConfig,
   trigger: JobTrigger,
   delivery: "live" | "standard",
-  forceOpportunityIds: string[] = [],
+  scope: {
+    targetOpportunityIds?: string[];
+    forceRefreshIds?: string[];
+  } = {},
 ) {
   const taskConfig = snapshotConfig(config);
   return startJob(
@@ -244,7 +299,7 @@ export function startResearchJob(
         db,
         taskConfig,
         delivery,
-        forceOpportunityIds,
+        scope,
       ),
   );
 }
@@ -286,7 +341,9 @@ export function startDiscoveryPipeline(
     if (!completed.result.opportunityIds.length) {
       return { discovery: completed, research: null };
     }
-    const research = startResearchJob(db, config, trigger, "standard");
+    const research = startResearchJob(db, config, trigger, "standard", {
+      targetOpportunityIds: completed.result.opportunityIds,
+    });
     return {
       discovery: completed,
       research: await research.completion,

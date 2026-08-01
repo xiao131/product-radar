@@ -2,15 +2,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
+import { NoObjectGeneratedError } from "ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { createDatabase, type RadarDatabase } from "./db.js";
-import { JobAlreadyRunningError, startBackupJob } from "./jobs.js";
+import {
+  classifyJobResult,
+  JobAlreadyRunningError,
+  startBackupJob,
+} from "./jobs.js";
 import { latestSchemaVersion } from "./migrations.js";
 import {
   applyEvidenceSufficiencyGuard,
   calculateWeightedScore,
   normalizeResearchDimensions,
+  researchDueOpportunities,
+  retryInvalidStructuredOutput,
 } from "./research.js";
 import { hashPassword } from "./security.js";
 import { createTestConfig } from "./test-config.js";
@@ -117,6 +124,77 @@ describe("production persistence", () => {
 });
 
 describe("production decision and budgets", () => {
+  it("retries a structured AI stage once after an invalid object", async () => {
+    const invalidObject = new NoObjectGeneratedError({
+      message: "could not parse the response",
+      cause: new Error("invalid JSON"),
+      text: "not-json",
+      response: undefined as never,
+      usage: undefined as never,
+      finishReason: undefined as never,
+    });
+    let attempts = 0;
+    const result = await retryInvalidStructuredOutput(async (isRetry) => {
+      attempts += 1;
+      if (!isRetry) throw invalidObject;
+      return "repaired";
+    });
+    expect(result).toBe("repaired");
+    expect(attempts).toBe(2);
+  });
+
+  it("reports partial and fully failed research jobs accurately", () => {
+    expect(
+      classifyJobResult("RESEARCH", {
+        requested: 5,
+        failed: 2,
+        failures: [{ message: "could not parse the response" }],
+      }),
+    ).toMatchObject({ status: "PARTIAL" });
+    expect(
+      classifyJobResult("RESEARCH", {
+        requested: 5,
+        failed: 5,
+        failures: [{ message: "Billing service temporarily unavailable" }],
+      }),
+    ).toMatchObject({
+      status: "FAILED",
+      error: expect.stringContaining("5/5"),
+    });
+  });
+
+  it("limits a targeted research run to the selected opportunity", async () => {
+    const database = createDatabase(":memory:", true);
+    const opportunities = database
+      .prepare("SELECT id FROM opportunities ORDER BY created_at LIMIT 2")
+      .all() as Array<{ id: string }>;
+    database
+      .prepare(
+        "UPDATE opportunities SET research_status = 'FAILED' WHERE id IN (?, ?)",
+      )
+      .run(opportunities[0]?.id, opportunities[1]?.id);
+
+    const result = await researchDueOpportunities(
+      database,
+      createTestConfig(),
+      "standard",
+      { targetOpportunityIds: [opportunities[0]!.id] },
+    );
+
+    expect(result).toMatchObject({ requested: 1, researched: 1, failed: 0 });
+    expect(
+      database
+        .prepare("SELECT research_status FROM opportunities WHERE id = ?")
+        .get(opportunities[0]!.id),
+    ).toEqual({ research_status: "READY" });
+    expect(
+      database
+        .prepare("SELECT research_status FROM opportunities WHERE id = ?")
+        .get(opportunities[1]!.id),
+    ).toEqual({ research_status: "FAILED" });
+    database.close();
+  });
+
   it("normalizes fixed dimensions and computes the weighted score", () => {
     const dimensions = normalizeResearchDimensions([
       { key: "freshness", score: 90, explanation: "fresh" },

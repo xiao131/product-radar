@@ -27,6 +27,7 @@ function settingsUpdate(
     aiBaseUrl: settings.aiBaseUrl,
     aiApiKey,
     aiRequestTimeoutSeconds: settings.aiRequestTimeoutSeconds,
+    researchAiConcurrency: settings.researchAiConcurrency,
     providerMaxRetries: settings.providerMaxRetries,
     discoveryAiSignalLimit: settings.discoveryAiSignalLimit,
     discoveryAiMaxBatchesPerRun: settings.discoveryAiMaxBatchesPerRun,
@@ -261,6 +262,20 @@ export function SettingsPage() {
                 max="3"
                 value={form.providerMaxRetries}
                 onChange={(event) => change("providerMaxRetries", Number(event.target.value))}
+              />
+            </Field>
+            <Field
+              label="同时调研候选数"
+              hint="建议保持 1；中转服务不稳定时不要并发。"
+            >
+              <input
+                type="number"
+                min="1"
+                max="3"
+                value={form.researchAiConcurrency}
+                onChange={(event) =>
+                  change("researchAiConcurrency", Number(event.target.value))
+                }
               />
             </Field>
           </div>
