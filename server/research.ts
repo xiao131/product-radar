@@ -58,6 +58,7 @@ export interface ResearchExecution {
 interface ResearchOptions {
   force?: boolean;
   collectedEvidence?: EvidenceItem[];
+  evidenceAlreadyPersisted?: boolean;
 }
 
 const dimensions: Array<{
@@ -575,6 +576,36 @@ function isFresh(lastResearchedAt: string | null, freshnessDays: number) {
   return Date.now() - researchedAt < freshnessDays * 24 * 60 * 60 * 1_000;
 }
 
+export function reusableFailedResearchEvidence(
+  db: RadarDatabase,
+  opportunity: Opportunity,
+  freshnessDays: number,
+) {
+  if (opportunity.researchStatus !== "FAILED") return null;
+
+  const evidenceRows = db
+    .prepare(
+      "SELECT * FROM evidence_items WHERE opportunity_id = ? ORDER BY collected_at DESC LIMIT 40",
+    )
+    .all(opportunity.id) as Record<string, unknown>[];
+  const evidence = evidenceRows.map(mapEvidence).filter((item) => {
+    const itemFreshnessDays =
+      item.freshnessDays > 0
+        ? Math.min(freshnessDays, item.freshnessDays)
+        : freshnessDays;
+    return isFresh(item.collectedAt, itemFreshnessDays);
+  });
+  const coverage = evidenceCoverage(evidence);
+  if (
+    coverage.evidenceCount < 3 ||
+    coverage.categories.length < 3 ||
+    coverage.sourceCount < 3
+  ) {
+    return null;
+  }
+  return evidence;
+}
+
 export function researchFreshnessDaysFor(
   opportunity: Opportunity,
   baseFreshnessDays: number,
@@ -674,7 +705,9 @@ export async function researchOpportunity(
   try {
     const newEvidence =
       options.collectedEvidence ?? (await provider.collect(opportunity, version));
-    persistEvidence(db, newEvidence);
+    if (!options.evidenceAlreadyPersisted) {
+      persistEvidence(db, newEvidence);
+    }
     const evidenceRows = db
       .prepare(
         "SELECT * FROM evidence_items WHERE opportunity_id = ? ORDER BY collected_at DESC LIMIT 40",
@@ -987,12 +1020,35 @@ export async function researchDueOpportunities(
   };
   if (!opportunities.length) return summary;
 
-  const requests: ResearchCollectionRequest[] = opportunities.map((opportunity) => ({
-    opportunity,
-    version: (getReport(db, opportunity.id)?.version ?? 0) + 1,
-    forceRefresh: forcedIds.has(opportunity.id),
-  }));
-  const evidenceByOpportunity = await provider.collectBatch(requests, delivery);
+  const evidenceByOpportunity = new Map<string, EvidenceItem[]>();
+  const persistedEvidenceOpportunityIds = new Set<string>();
+  const requests: ResearchCollectionRequest[] = [];
+  for (const opportunity of opportunities) {
+    const forceRefresh = forcedIds.has(opportunity.id);
+    const reusableEvidence = forceRefresh
+      ? null
+      : reusableFailedResearchEvidence(
+          db,
+          opportunity,
+          config.researchFreshnessDays,
+        );
+    if (reusableEvidence) {
+      evidenceByOpportunity.set(opportunity.id, reusableEvidence);
+      persistedEvidenceOpportunityIds.add(opportunity.id);
+      continue;
+    }
+    requests.push({
+      opportunity,
+      version: (getReport(db, opportunity.id)?.version ?? 0) + 1,
+      forceRefresh,
+    });
+  }
+  if (requests.length > 0) {
+    const collectedEvidence = await provider.collectBatch(requests, delivery);
+    for (const [opportunityId, evidence] of collectedEvidence) {
+      evidenceByOpportunity.set(opportunityId, evidence);
+    }
+  }
 
   async function processOpportunity(opportunity: Opportunity) {
     const evidence = evidenceByOpportunity.get(opportunity.id);
@@ -1037,6 +1093,9 @@ export async function researchDueOpportunities(
       await researchOpportunity(db, opportunity.id, config, {
         force: true,
         collectedEvidence: evidence,
+        evidenceAlreadyPersisted: persistedEvidenceOpportunityIds.has(
+          opportunity.id,
+        ),
       });
       summary.researched += 1;
     } catch (error) {

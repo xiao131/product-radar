@@ -12,11 +12,13 @@ import {
   startBackupJob,
 } from "./jobs.js";
 import { latestSchemaVersion } from "./migrations.js";
+import { mapOpportunity } from "./mappers.js";
 import {
   applyEvidenceSufficiencyGuard,
   calculateWeightedScore,
   normalizeResearchDimensions,
   researchDueOpportunities,
+  reusableFailedResearchEvidence,
   retryInvalidStructuredOutput,
 } from "./research.js";
 import { hashPassword } from "./security.js";
@@ -192,6 +194,42 @@ describe("production decision and budgets", () => {
         .prepare("SELECT research_status FROM opportunities WHERE id = ?")
         .get(opportunities[1]!.id),
     ).toEqual({ research_status: "FAILED" });
+    database.close();
+  });
+
+  it("reuses fresh persisted evidence after an AI research failure", () => {
+    const database = createDatabase(":memory:", true);
+    const row = database
+      .prepare("SELECT * FROM opportunities ORDER BY created_at LIMIT 1")
+      .get() as Record<string, unknown>;
+    const collectedAt = new Date().toISOString();
+    database
+      .prepare(
+        "UPDATE opportunities SET research_status = 'FAILED' WHERE id = ?",
+      )
+      .run(row.id);
+    database
+      .prepare("UPDATE evidence_items SET collected_at = ? WHERE opportunity_id = ?")
+      .run(collectedAt, row.id);
+
+    const failedOpportunity = mapOpportunity({
+      ...row,
+      research_status: "FAILED",
+    });
+    const evidence = reusableFailedResearchEvidence(
+      database,
+      failedOpportunity,
+      7,
+    );
+
+    expect(evidence).toHaveLength(3);
+    expect(
+      reusableFailedResearchEvidence(
+        database,
+        { ...failedOpportunity, researchStatus: "READY" },
+        7,
+      ),
+    ).toBeNull();
     database.close();
   });
 
