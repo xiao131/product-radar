@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { generateText, Output, streamText } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -7,6 +7,7 @@ import {
 } from "./ai.js";
 import type { AppConfig } from "./config.js";
 import { createTestConfig } from "./test-config.js";
+import { RESEARCH_STAGE_MAX_OUTPUT_TOKENS } from "./research.js";
 
 const relayConfig: AppConfig = {
   ...createTestConfig(),
@@ -144,5 +145,48 @@ describe("research AI provider", () => {
     expect(headers.get("anthropic-version")).toBe("2023-06-01");
     expect(body.model).toBe("claude-opus-5");
     expect(createResearchAiProviderOptions(anthropicConfig)).toBeUndefined();
+  });
+
+  it("uses a bounded streaming request for Anthropic research stages", async () => {
+    const anthropicConfig: AppConfig = {
+      ...relayConfig,
+      aiProvider: "anthropic",
+      aiModel: "claude-opus-5",
+      anthropicApiKey: "anthropic-test-key",
+      anthropicBaseUrl: "https://relay.example/v1",
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          type: "error",
+          error: { type: "api_error", message: "intentional test response" },
+        }),
+        {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = streamText({
+      model: createResearchAiModel(anthropicConfig),
+      output: Output.object({ schema: z.object({ answer: z.string() }) }),
+      prompt: "Return a short answer.",
+      maxOutputTokens: RESEARCH_STAGE_MAX_OUTPUT_TOKENS.researcher,
+      maxRetries: 0,
+    });
+    await expect(result.output).rejects.toThrow();
+
+    const [, request] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    const body = JSON.parse(String(request.body)) as {
+      max_tokens: number;
+      stream: boolean;
+    };
+    expect(body.max_tokens).toBe(4_000);
+    expect(body.stream).toBe(true);
   });
 });

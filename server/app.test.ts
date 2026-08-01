@@ -5,13 +5,13 @@ import { createDatabase, type RadarDatabase } from "./db.js";
 import { createTestConfig } from "./test-config.js";
 import { UsageBudgetExceededError } from "./usage.js";
 
-const config = createTestConfig();
-
 describe("Product Radar API", () => {
   let database: RadarDatabase;
   let app: ReturnType<typeof createApp>;
+  let config: ReturnType<typeof createTestConfig>;
 
   beforeEach(() => {
+    config = createTestConfig();
     database = createDatabase(":memory:", true);
     app = createApp(database, config);
   });

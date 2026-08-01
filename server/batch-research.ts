@@ -1,6 +1,6 @@
 import { loadConfig } from "./config.js";
 import { createDatabase } from "./db.js";
-import { recoverStaleJobs, runResearchJob } from "./jobs.js";
+import { runResearchJob } from "./jobs.js";
 import { applyStoredRuntimeSettings } from "./runtime-settings.js";
 
 const config = loadConfig();
@@ -9,10 +9,13 @@ const database = createDatabase(config.databasePath, {
   busyTimeoutMs: config.databaseBusyTimeoutMs,
 });
 applyStoredRuntimeSettings(database, config);
-recoverStaleJobs(database);
+
+const targetOpportunityIds = process.argv.slice(2);
 
 try {
-  const job = await runResearchJob(database, config, "cli", "standard");
+  const job = await runResearchJob(database, config, "cli", "standard", {
+    ...(targetOpportunityIds.length > 0 ? { targetOpportunityIds } : {}),
+  });
   console.log(JSON.stringify(job.result, null, 2));
   if (job.result.failed > 0) process.exitCode = 1;
 } catch (error) {

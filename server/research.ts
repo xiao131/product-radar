@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { generateText, NoObjectGeneratedError, Output } from "ai";
+import {
+  APICallError,
+  NoObjectGeneratedError,
+  Output,
+  streamText,
+} from "ai";
 import type { LanguageModelUsage } from "ai";
 import type { ZodType } from "zod";
 import {
@@ -16,6 +21,7 @@ import type {
   ResearchDelivery,
 } from "./providers.js";
 import { UsageLedger } from "./usage.js";
+import { withRetry } from "./retry.js";
 import {
   researchStageOneSchema,
   researchStageThreeSchema,
@@ -35,6 +41,12 @@ import type {
 export class ResearchInProgressError extends Error {}
 
 export const RESEARCH_PROMPT_VERSION = "production-v2";
+
+export const RESEARCH_STAGE_MAX_OUTPUT_TOKENS = {
+  researcher: 4_000,
+  debate: 4_000,
+  judge: 8_000,
+} as const;
 
 export async function retryInvalidStructuredOutput<T>(
   execute: (structuredRetry: boolean) => Promise<T>,
@@ -386,7 +398,7 @@ ${JSON.stringify(evidenceSnapshot)}
   const common = () => ({
     model,
     providerOptions,
-    maxRetries: config.providerMaxRetries,
+    maxRetries: 0,
     abortSignal: AbortSignal.timeout(config.aiRequestTimeoutMs),
   });
 
@@ -403,19 +415,67 @@ ${JSON.stringify(evidenceSnapshot)}
     prompt: string,
   ) => {
     const execute = async (structuredRetry: boolean) => {
-      const result = await generateText({
-        ...common(),
-        output: Output.object({ schema }),
-        system: structuredRetry
-          ? `${system}\n上一次输出未通过结构校验。请重新生成完整结果，严格满足给定 schema，不要省略字段。`
-          : system,
-        prompt,
-      });
-      recordUsage(result.usage);
-      return {
-        output: schema.parse(result.output),
-        usage: result.usage,
-      };
+      let attempt = 0;
+      return withRetry(
+        async () => {
+          attempt += 1;
+          const startedAt = Date.now();
+          logEvent("info", "research_ai_stage_started", {
+            opportunityId: opportunity.id,
+            stage,
+            attempt,
+            maxOutputTokens: RESEARCH_STAGE_MAX_OUTPUT_TOKENS[stage],
+            streaming: true,
+          });
+          try {
+            const result = streamText({
+              ...common(),
+              output: Output.object({ schema }),
+              maxOutputTokens: RESEARCH_STAGE_MAX_OUTPUT_TOKENS[stage],
+              system: structuredRetry
+                ? `${system}\n上一次输出未通过结构校验。请重新生成完整结果，严格满足给定 schema，不要省略字段。`
+                : system,
+              prompt,
+            });
+            const [output, usage] = await Promise.all([
+              result.output,
+              result.usage,
+            ]);
+            recordUsage(usage);
+            logEvent("info", "research_ai_stage_completed", {
+              opportunityId: opportunity.id,
+              stage,
+              attempt,
+              durationMs: Date.now() - startedAt,
+              inputTokens: Number(usage.inputTokens ?? 0),
+              outputTokens: Number(usage.outputTokens ?? 0),
+            });
+            return {
+              output: schema.parse(output),
+              usage,
+            };
+          } catch (error) {
+            logEvent("warn", "research_ai_stage_attempt_failed", {
+              opportunityId: opportunity.id,
+              stage,
+              attempt,
+              durationMs: Date.now() - startedAt,
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              statusCode:
+                APICallError.isInstance(error) ? error.statusCode : null,
+              retryable:
+                APICallError.isInstance(error) && error.isRetryable === true,
+            });
+            throw error;
+          }
+        },
+        {
+          retries: config.providerMaxRetries,
+          baseDelayMs: 15_000,
+          shouldRetry: (error) =>
+            APICallError.isInstance(error) && error.isRetryable === true,
+        },
+      );
     };
 
     return retryInvalidStructuredOutput(execute, (error) => {
