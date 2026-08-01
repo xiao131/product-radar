@@ -191,7 +191,7 @@ export interface JobRun {
   id: string;
   type: string;
   trigger: string;
-  status: "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED";
+  status: "RUNNING" | "COMPLETED" | "PARTIAL" | "FAILED" | "SKIPPED";
   error: string | null;
   result?: Record<string, unknown>;
   startedAt: string;
@@ -311,6 +311,15 @@ export interface OperationsStatus {
     discoveryHour: number;
     researchHour: number;
     backupHour: number;
+    running: boolean;
+    startedAt: string | null;
+    lastTickAt: string | null;
+    nextTickAt: string | null;
+    nextRuns: {
+      backup: string | null;
+      discovery: string | null;
+      research: string | null;
+    };
   };
   discovery: {
     latestAt: string | null;

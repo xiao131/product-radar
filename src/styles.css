@@ -2612,6 +2612,40 @@ body.modal-open {
   flex-shrink: 0;
 }
 
+.scheduler-strip {
+  display: grid;
+  grid-template-columns: 1.35fr repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  background: var(--paper-deep);
+}
+
+.scheduler-strip > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 16px 20px;
+  border-right: 1px solid var(--line);
+}
+
+.scheduler-strip > div:last-child {
+  border-right: 0;
+}
+
+.scheduler-strip svg {
+  color: var(--forest);
+}
+
+.scheduler-strip span,
+.scheduler-strip small {
+  color: #6f756f;
+  font-size: 11px;
+}
+
+.scheduler-strip strong {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13px;
+}
+
 .operations-band {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -2699,6 +2733,10 @@ body.modal-open {
   color: var(--red);
 }
 
+.job-row--skipped small {
+  color: #6f756f;
+}
+
 .job-dot {
   width: 8px;
   height: 8px;
@@ -2721,6 +2759,10 @@ body.modal-open {
 
 .job-dot--running {
   background: var(--orange);
+}
+
+.job-dot--skipped {
+  background: var(--gray);
 }
 
 .settings-page {
@@ -3107,6 +3149,19 @@ body.modal-open {
     grid-template-columns: 1fr 1fr;
   }
 
+  .scheduler-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .scheduler-strip > div:nth-child(even),
+  .scheduler-strip > div:last-child {
+    border-right: 0;
+  }
+
+  .scheduler-strip > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+
   .operations-band > div:nth-child(even),
   .operations-band > div:last-child {
     border-right: 0;
@@ -3154,6 +3209,19 @@ body.modal-open {
 
   .operations-band {
     grid-template-columns: 1fr;
+  }
+
+  .scheduler-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .scheduler-strip > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .scheduler-strip > div:last-child {
+    border-bottom: 0;
   }
 
   .operations-band > div {

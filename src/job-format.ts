@@ -15,6 +15,7 @@ const jobStatusLabels: Record<string, string> = {
   COMPLETED: "已完成",
   PARTIAL: "部分失败",
   FAILED: "失败",
+  SKIPPED: "已跳过",
 };
 
 export function jobTypeLabel(value: string) {

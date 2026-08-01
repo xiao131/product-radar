@@ -3,6 +3,7 @@ import {
   Archive,
   CircleCheck,
   CircleX,
+  Clock3,
   DatabaseZap,
   Radar,
   RefreshCw,
@@ -82,6 +83,11 @@ export function OperationsPage() {
     ["网页竞品", status.sources.webCompetitors],
     ["Apple 市场", status.sources.appleMarket],
   ] as const;
+  const scheduleRows = [
+    ["数据备份", status.scheduler.nextRuns.backup],
+    ["自动发现", status.scheduler.nextRuns.discovery],
+    ["多维调研", status.scheduler.nextRuns.research],
+  ] as const;
 
   return (
     <div className="operations-page">
@@ -131,6 +137,32 @@ export function OperationsPage() {
 
       {actionError && <div className="form-error standalone-error" role="alert">{actionError}</div>}
       {actionMessage && <div className="form-success standalone-error" role="status">{actionMessage}</div>}
+
+      <section className="scheduler-strip" aria-label="定时任务状态">
+        <div>
+          <Clock3 size={18} />
+          <span>
+            调度器{status.scheduler.running ? "正在执行" : "正常等待"}
+          </span>
+          <strong>
+            {status.scheduler.lastTickAt
+              ? `最近检查 ${shortDate(status.scheduler.lastTickAt)}`
+              : "等待首次检查"}
+          </strong>
+          <small>
+            {status.scheduler.nextTickAt
+              ? `下次检查 ${shortDate(status.scheduler.nextTickAt)}`
+              : "自动更新未启用"}
+          </small>
+        </div>
+        {scheduleRows.map(([label, nextAt]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <strong>{nextAt ? shortDate(nextAt) : "未启用"}</strong>
+            <small>下一次计划</small>
+          </div>
+        ))}
+      </section>
 
       <section className="operations-band">
         <div>
@@ -218,7 +250,7 @@ export function OperationsPage() {
             status.jobs.map((job) => (
               <div
                 id={`job-${job.id}`}
-                className={`job-row ${highlightedJobId === job.id ? "job-row--highlighted" : ""}`}
+                className={`job-row job-row--${job.status.toLowerCase()} ${highlightedJobId === job.id ? "job-row--highlighted" : ""}`}
                 key={job.id}
                 aria-current={highlightedJobId === job.id ? "true" : undefined}
               >

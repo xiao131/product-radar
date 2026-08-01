@@ -7,6 +7,40 @@ interface Migration {
   up: (db: Database.Database) => void;
 }
 
+export function repairHistoricalJobOutcomes(db: Database.Database) {
+  const rows = db
+    .prepare(
+      `SELECT id, job_type, status, result_json
+       FROM job_runs
+       WHERE job_type = 'RESEARCH'
+         AND status IN ('COMPLETED', 'PARTIAL')`,
+    )
+    .all() as Array<{
+    id: string;
+    job_type: string;
+    status: string;
+    result_json: string;
+  }>;
+  for (const row of rows) {
+    let result: { requested?: number; failed?: number };
+    try {
+      result = JSON.parse(row.result_json) as typeof result;
+    } catch {
+      continue;
+    }
+    const requested = Number(result.requested ?? 0);
+    const failed = Number(result.failed ?? 0);
+    if (requested <= 0 || failed <= 0) continue;
+    const status = failed >= requested ? "FAILED" : "PARTIAL";
+    const error = `${failed}/${requested} 个候选调研失败（历史任务状态已修正）`;
+    db.prepare(
+      `UPDATE job_runs
+       SET status = ?, error = COALESCE(error, ?)
+       WHERE id = ?`,
+    ).run(status, error, row.id);
+  }
+}
+
 const initialSchema = `
 CREATE TABLE IF NOT EXISTS products (
   id TEXT PRIMARY KEY,
@@ -278,6 +312,13 @@ const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_opportunity_stale
           ON opportunities(stale_since, research_status);
       `);
+    },
+  },
+  {
+    version: 7,
+    name: "repair historical research job outcomes",
+    up(db) {
+      repairHistoricalJobOutcomes(db);
     },
   },
 ];

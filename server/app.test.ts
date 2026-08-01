@@ -549,6 +549,13 @@ describe("Product Radar API", () => {
     expect(response.body.scheduler).toMatchObject({
       discoveryEnabled: false,
       discoveryHour: 3,
+      running: false,
+      lastTickAt: null,
+      nextRuns: {
+        backup: null,
+        discovery: null,
+        research: null,
+      },
     });
     expect(response.body.usage.dataForSeo).toMatchObject({
       billedRequests: 0,

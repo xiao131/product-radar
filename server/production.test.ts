@@ -11,7 +11,10 @@ import {
   JobAlreadyRunningError,
   startBackupJob,
 } from "./jobs.js";
-import { latestSchemaVersion } from "./migrations.js";
+import {
+  latestSchemaVersion,
+  repairHistoricalJobOutcomes,
+} from "./migrations.js";
 import { mapOpportunity } from "./mappers.js";
 import {
   applyEvidenceSufficiencyGuard,
@@ -121,6 +124,36 @@ describe("production persistence", () => {
     const completed = await started.completion;
     expect(completed.result.integrity).toBe("ok");
     expect(fs.existsSync(completed.result.path)).toBe(true);
+    database.close();
+  });
+
+  it("repairs historical research jobs that were marked complete despite total failure", () => {
+    const database = createDatabase(":memory:", false);
+    const jobId = crypto.randomUUID();
+    database
+      .prepare(
+        `INSERT INTO job_runs (
+           id, job_type, trigger_type, status, provider_mode,
+           result_json, started_at, finished_at
+         ) VALUES (?, 'RESEARCH', 'manual', 'COMPLETED', 'REAL', ?, ?, ?)`,
+      )
+      .run(
+        jobId,
+        JSON.stringify({ requested: 5, researched: 0, failed: 5 }),
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
+
+    repairHistoricalJobOutcomes(database);
+
+    expect(
+      database
+        .prepare("SELECT status, error FROM job_runs WHERE id = ?")
+        .get(jobId),
+    ).toEqual({
+      status: "FAILED",
+      error: "5/5 个候选调研失败（历史任务状态已修正）",
+    });
     database.close();
   });
 });

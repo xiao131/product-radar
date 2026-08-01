@@ -27,6 +27,7 @@ import {
 import { latestSchemaVersion } from "./migrations.js";
 import { estimateResearchCost } from "./providers.js";
 import { createSecurity, fixedWindowRateLimiter } from "./security.js";
+import { schedulerRuntimeStatus } from "./scheduler.js";
 import { linkSignalEvidence } from "./signal-evidence.js";
 import { readableAiError } from "./errors.js";
 import {
@@ -913,6 +914,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         `SELECT status, result_json, started_at, finished_at
          FROM job_runs
          WHERE job_type = 'DISCOVERY'
+           AND status != 'SKIPPED'
          ORDER BY started_at DESC
          LIMIT 1`,
       )
@@ -974,6 +976,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         discoveryHour: config.schedulerDiscoveryHour,
         researchHour: config.schedulerResearchHour,
         backupHour: config.schedulerBackupHour,
+        ...schedulerRuntimeStatus(db, config),
       },
       discovery: {
         latestAt:
