@@ -1,4 +1,10 @@
-import { generateText, Output, streamText } from "ai";
+import {
+  APICallError,
+  generateText,
+  NoOutputGeneratedError,
+  Output,
+  streamText,
+} from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -7,7 +13,10 @@ import {
 } from "./ai.js";
 import type { AppConfig } from "./config.js";
 import { createTestConfig } from "./test-config.js";
-import { RESEARCH_STAGE_MAX_OUTPUT_TOKENS } from "./research.js";
+import {
+  RESEARCH_STAGE_MAX_OUTPUT_TOKENS,
+  unwrapResearchStreamError,
+} from "./research.js";
 
 const relayConfig: AppConfig = {
   ...createTestConfig(),
@@ -31,6 +40,23 @@ afterEach(() => {
 });
 
 describe("research AI provider", () => {
+  it("recovers retryable provider errors hidden by an empty stream", () => {
+    const providerError = new APICallError({
+      message: "Cloudflare timeout",
+      url: "https://relay.example/v1/messages",
+      requestBodyValues: {},
+      statusCode: 524,
+    });
+    const wrapperError = new NoOutputGeneratedError({
+      message: "No output generated. Check the stream for errors.",
+    });
+
+    const error = unwrapResearchStreamError(wrapperError, providerError);
+
+    expect(error).toBe(providerError);
+    expect(APICallError.isInstance(error) && error.isRetryable).toBe(true);
+  });
+
   it("uses the custom OpenAI Responses endpoint and privacy settings", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

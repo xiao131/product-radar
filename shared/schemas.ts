@@ -114,10 +114,8 @@ export const researchStageTwoSchema = z.object({
   debateSummary: z.string(),
 });
 
-export const researchStageThreeSchema = z.object({
+export const researchStageThreeDecisionSchema = z.object({
   verdict: verdictSchema,
-  recommendedPlatform: platformSchema,
-  recommendedAction: z.string(),
   confidence: z.number().min(0).max(100),
   dimensionScores: uniqueAiDimensionScoresSchema,
   supportingReasons: z.array(z.string()).min(2).max(8),
@@ -131,6 +129,11 @@ export const researchStageThreeSchema = z.object({
     )
     .min(2)
     .max(10),
+});
+
+export const researchStageFourPlanSchema = z.object({
+  recommendedPlatform: platformSchema,
+  recommendedAction: z.string(),
   unknowns: z.array(z.string()).max(8),
   risks: z.array(z.string()).max(8),
   platformAnalysis: z.object({
@@ -146,3 +149,7 @@ export const researchStageThreeSchema = z.object({
   }),
   changeSummary: z.string(),
 });
+
+export const researchStageThreeSchema = researchStageThreeDecisionSchema.merge(
+  researchStageFourPlanSchema,
+);
