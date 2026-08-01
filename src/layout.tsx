@@ -17,7 +17,7 @@ import { NavLink, usePath } from "./router";
 
 interface Settings {
   researchMode: "DEMO" | "REAL";
-  aiProvider: "gateway" | "openai" | "anthropic";
+  aiProvider: "gateway" | "openai" | "anthropic" | "deepseek";
   aiModel: string;
   aiConfigured: boolean;
   searchConfigured: boolean;

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
 
-export type AiProvider = "gateway" | "openai" | "anthropic";
+export type AiProvider = "gateway" | "openai" | "anthropic" | "deepseek";
 export type AiReasoningEffort =
   | "none"
   | "low"
@@ -34,6 +34,8 @@ export interface AppConfig {
   openAiBaseUrl: string;
   anthropicApiKey?: string;
   anthropicBaseUrl: string;
+  deepSeekApiKey?: string;
+  deepSeekBaseUrl: string;
   aiReasoningEffort: AiReasoningEffort;
   aiDisableResponseStorage: boolean;
   aiRequestTimeoutMs: number;
@@ -120,9 +122,15 @@ function requireProductionValue(name: string, value: string | undefined) {
 }
 
 function aiProviderValue(value: string | undefined): AiProvider {
-  if (value === "openai" || value === "anthropic" || value === "gateway") {
+  if (
+    value === "openai" ||
+    value === "anthropic" ||
+    value === "deepseek" ||
+    value === "gateway"
+  ) {
     return value;
   }
+  if (process.env.DEEPSEEK_API_KEY) return "deepseek";
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   return process.env.OPENAI_API_KEY ? "openai" : "gateway";
 }
@@ -187,7 +195,9 @@ export function isAiConfigured(config: AppConfig) {
     ? Boolean(config.openAiApiKey)
     : config.aiProvider === "anthropic"
       ? Boolean(config.anthropicApiKey)
-      : Boolean(config.aiGatewayApiKey);
+      : config.aiProvider === "deepseek"
+        ? Boolean(config.deepSeekApiKey)
+        : Boolean(config.aiGatewayApiKey);
 }
 
 export function loadConfig(): AppConfig {
@@ -211,7 +221,9 @@ export function loadConfig(): AppConfig {
       ? "gpt-5.6-terra"
       : aiProvider === "anthropic"
         ? "claude-sonnet-4-5"
-        : "openai/gpt-5.6-terra");
+        : aiProvider === "deepseek"
+          ? "deepseek-v4-flash"
+          : "openai/gpt-5.6-terra");
   const anthropicApiKey =
     process.env.ANTHROPIC_API_KEY?.trim() ||
     (aiProvider === "anthropic" ? process.env.OPENAI_API_KEY : undefined);
@@ -224,7 +236,9 @@ export function loadConfig(): AppConfig {
       ? Boolean(process.env.OPENAI_API_KEY)
       : aiProvider === "anthropic"
         ? Boolean(anthropicApiKey)
-        : Boolean(process.env.AI_GATEWAY_API_KEY);
+        : aiProvider === "deepseek"
+          ? Boolean(process.env.DEEPSEEK_API_KEY)
+          : Boolean(process.env.AI_GATEWAY_API_KEY);
   const hasSearch = Boolean(
     process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD,
   );
@@ -310,7 +324,14 @@ export function loadConfig(): AppConfig {
     openAiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
     anthropicApiKey,
     anthropicBaseUrl,
-    aiReasoningEffort: reasoningEffortValue(process.env.AI_REASONING_EFFORT),
+    deepSeekApiKey: process.env.DEEPSEEK_API_KEY,
+    deepSeekBaseUrl:
+      process.env.DEEPSEEK_BASE_URL?.trim().replace(/\/+$/, "") ||
+      "https://api.deepseek.com",
+    aiReasoningEffort:
+      aiProvider === "deepseek"
+        ? "max"
+        : reasoningEffortValue(process.env.AI_REASONING_EFFORT),
     aiDisableResponseStorage: booleanValue(
       process.env.AI_DISABLE_RESPONSE_STORAGE,
       true,

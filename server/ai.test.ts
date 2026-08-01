@@ -14,6 +14,7 @@ import {
 import type { AppConfig } from "./config.js";
 import { createTestConfig } from "./test-config.js";
 import {
+  DEEPSEEK_RESEARCH_STAGE_MAX_OUTPUT_TOKENS,
   RESEARCH_STAGE_MAX_OUTPUT_TOKENS,
   unwrapResearchStreamError,
 } from "./research.js";
@@ -171,6 +172,67 @@ describe("research AI provider", () => {
     expect(headers.get("anthropic-version")).toBe("2023-06-01");
     expect(body.model).toBe("claude-opus-5");
     expect(createResearchAiProviderOptions(anthropicConfig)).toBeUndefined();
+  });
+
+  it("uses DeepSeek Chat Completions with thinking and maximum reasoning", async () => {
+    const deepSeekConfig: AppConfig = {
+      ...relayConfig,
+      aiProvider: "deepseek",
+      aiModel: "deepseek-v4-flash",
+      deepSeekApiKey: "deepseek-test-key",
+      deepSeekBaseUrl: "https://api.deepseek.com",
+      aiReasoningEffort: "max",
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "intentional test response",
+            type: "server_error",
+          },
+        }),
+        {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = streamText({
+      model: createResearchAiModel(deepSeekConfig),
+      output: Output.object({ schema: z.object({ answer: z.string() }) }),
+      providerOptions: createResearchAiProviderOptions(deepSeekConfig),
+      prompt: "Return a short answer.",
+      maxOutputTokens:
+        DEEPSEEK_RESEARCH_STAGE_MAX_OUTPUT_TOKENS.researcher,
+      maxRetries: 0,
+    });
+    await expect(result.output).rejects.toThrow();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    const headers = new Headers(request.headers);
+    const body = JSON.parse(String(request.body)) as {
+      model: string;
+      max_tokens: number;
+      stream: boolean;
+      thinking: { type: string };
+      reasoning_effort: string;
+      response_format: { type: string };
+    };
+
+    expect(url).toBe("https://api.deepseek.com/chat/completions");
+    expect(headers.get("authorization")).toBe("Bearer deepseek-test-key");
+    expect(body.model).toBe("deepseek-v4-flash");
+    expect(body.max_tokens).toBe(8_192);
+    expect(body.stream).toBe(true);
+    expect(body.thinking).toEqual({ type: "enabled" });
+    expect(body.reasoning_effort).toBe("max");
+    expect(body.response_format).toEqual({ type: "json_object" });
   });
 
   it("uses a bounded streaming request for Anthropic research stages", async () => {

@@ -341,7 +341,7 @@ export interface OperationsStatus {
 
 export interface RuntimeSettings {
   researchMode: "DEMO" | "REAL";
-  aiProvider: "gateway" | "openai" | "anthropic";
+  aiProvider: "gateway" | "openai" | "anthropic" | "deepseek";
   aiModel: string;
   aiBaseUrl: string;
   aiConfigured: boolean;

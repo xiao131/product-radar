@@ -82,7 +82,7 @@
 5. 候选进入完整多维调研，最终输出是否值得开发。
 
 “自动发现”只负责把有依据的候选送入雷达，不会直接给出 `BUILD_NOW`。最终开发
-判断仍由搜索、趋势、痛点、竞争、商业意图、可构建性等证据和三阶段 AI 完成。
+判断仍由搜索、趋势、痛点、竞争、商业意图、可构建性等证据和四阶段 AI 完成。
 
 ### 证据驱动的 AI 判断
 
@@ -135,7 +135,7 @@ flowchart LR
 - Node.js 22 或更高版本；
 - npm 10 或更高版本；
 - macOS、Linux 或 Windows；
-- 真实调研需要能够访问 OpenAI-compatible Responses API 或 AI Gateway，以及 DataForSEO。
+- 真实调研需要能够访问 DeepSeek、OpenAI Responses、Anthropic Messages 或 AI Gateway，以及 DataForSEO。
 
 ### 安装
 
@@ -192,18 +192,23 @@ RESEARCH_PROVIDER=real
 RESEARCH_FRESHNESS_DAYS=7
 RESEARCH_RATE_LIMIT_PER_HOUR=30
 
-AI_PROVIDER=openai
-OPENAI_BASE_URL=https://mdkj.lol
-OPENAI_API_KEY=替换为重新生成的密钥
-AI_MODEL=gpt-5.6-terra
-AI_REASONING_EFFORT=xhigh
+AI_PROVIDER=deepseek
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_API_KEY=替换为你的密钥
+AI_MODEL=deepseek-v4-flash
+AI_REASONING_EFFORT=max
 AI_DISABLE_RESPONSE_STORAGE=true
 
 DATAFORSEO_LOGIN=...
 DATAFORSEO_PASSWORD=...
 ```
 
-`AI_PROVIDER=openai` 使用 OpenAI Responses 协议。`OPENAI_BASE_URL` 是 API
+`AI_PROVIDER=deepseek` 使用 DeepSeek 官方 Chat Completions 协议，请求地址为
+`https://api.deepseek.com/chat/completions`。项目会明确开启思考模式，并固定发送最高
+推理强度 `reasoning_effort=max`。四个调研阶段采用流式响应，并为思考 Token 保留
+更充足的输出上限；结构化结果使用 DeepSeek 支持的 JSON Object 模式。
+
+如需改用 OpenAI，`AI_PROVIDER=openai` 使用 OpenAI Responses 协议。`OPENAI_BASE_URL` 是 API
 前缀，程序会在它后面请求 `/responses`；如果中转要求 `/v1/responses`，请把
 `OPENAI_BASE_URL` 配成包含 `/v1` 的地址。
 
@@ -240,7 +245,7 @@ AI_MODEL=openai/gpt-5.6-terra
 - Google/Baidu Standard SERP 竞品域名与结果密度；
 - Apple App Search 竞品、评分与评论量；
 - 手工、CSV、Reddit、App Review 等信号原文；
-- 三阶段 AI 结构化判断。
+- 四阶段 AI 结构化判断：研究员、正反辩论、裁判和 MVP 计划。
 
 单市场可以通过 `MARKET_LOCATION_CODE`、`MARKET_LANGUAGE_CODE` 和
 `MARKET_COUNTRY_CODE` 配置。需要同时覆盖多个市场时使用
@@ -294,7 +299,7 @@ AI 归并默认每批 60 条、单次任务最多滚动 5 批，并在后续批�
 npm run research:batch
 ```
 
-这个命令使用 DataForSEO Standard Queue，并通过数据库全局锁避免重复任务。批量采集后，只有首次调研、新增用户证据或市场指标出现明显变化的候选才会重新调用三阶段 AI；其余候选只更新证据时间。
+这个命令使用 DataForSEO Standard Queue，并通过数据库全局锁避免重复任务。批量采集后，只有首次调研、新增用户证据或市场指标出现明显变化的候选才会重新调用四阶段 AI；其余候选只更新证据时间。
 
 ## 环境变量
 
@@ -328,14 +333,16 @@ npm run research:batch
 | `RESEARCH_MARKETS` | 使用上面三个单市场变量 | 否 | 多市场列表，格式为 `国家:位置:Ads语言:搜索语言`，逗号分隔 |
 | `COLLECT_WEB_COMPETITORS` | `true` | 否 | 是否采集 Google Organic 竞品 |
 | `COLLECT_APPLE_MARKET` | `true` | 否 | 是否采集 Apple App Search 数据 |
-| `AI_PROVIDER` | 自动选择 | 否 | `openai`（Responses）、`anthropic`（Messages）或 `gateway` |
+| `AI_PROVIDER` | 自动选择 | 否 | `deepseek`（官方 Chat Completions）、`openai`（Responses）、`anthropic`（Messages）或 `gateway` |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | `deepseek` 模式 | DeepSeek 官方 API 前缀，程序请求 `/chat/completions` |
+| `DEEPSEEK_API_KEY` | 空 | `deepseek` 真实模式 | 通过 Bearer Header 发送的服务端鉴权密钥 |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai` 模式 | OpenAI-compatible API 前缀 |
 | `OPENAI_API_KEY` | 空 | `openai` 真实模式 | 通过 Bearer Header 发送的服务端鉴权密钥 |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `anthropic` 模式 | Anthropic Messages API 前缀；缺省时兼容读取 `OPENAI_BASE_URL` |
 | `ANTHROPIC_API_KEY` | 空 | `anthropic` 真实模式 | Anthropic `x-api-key`；缺省时兼容读取 `OPENAI_API_KEY` |
 | `AI_GATEWAY_API_KEY` | 空 | `gateway` 真实模式 | Vercel AI Gateway 鉴权 |
-| `AI_MODEL` | 按 Provider 选择 | 否 | `openai` 默认 `gpt-5.6-terra`；`anthropic` 默认 `claude-sonnet-4-5`；`gateway` 默认 `openai/gpt-5.6-terra` |
-| `AI_REASONING_EFFORT` | `xhigh` | 否 | Responses 推理强度：`none`/`low`/`medium`/`high`/`xhigh`/`max` |
+| `AI_MODEL` | 按 Provider 选择 | 否 | `deepseek` 默认 `deepseek-v4-flash`；`openai` 默认 `gpt-5.6-terra`；`anthropic` 默认 `claude-sonnet-4-5`；`gateway` 默认 `openai/gpt-5.6-terra` |
+| `AI_REASONING_EFFORT` | DeepSeek 为 `max`，其他为 `xhigh` | 否 | 推理强度；DeepSeek 模式固定为最高 `max` |
 | `AI_DISABLE_RESPONSE_STORAGE` | `true` | 否 | 为 `true` 时向 Responses API 发送 `store=false` |
 | `AI_REQUEST_TIMEOUT_MS` | `600000` | 否 | 单次 AI 生成最长等待时间；独立于数据供应商请求超时 |
 | `RESEARCH_AI_CONCURRENCY` | `1` | 否 | 同时调研的候选数，建议保持 1 以降低 AI 中转计费服务的并发失败 |
@@ -820,7 +827,7 @@ product-radar/
 │   ├── providers.ts            # Demo / DataForSEO Provider
 │   ├── discovery-provider.ts   # 低成本自动发现数据源
 │   ├── discovery.ts            # AI 聚类与候选去重入库
-│   └── research.ts             # 三阶段 AI 调研
+│   └── research.ts             # 四阶段 AI 调研
 ├── shared/                     # 前后端共享类型与 Zod Schema
 ├── src/
 │   ├── pages/                  # 首页、雷达库、产品库、信号与详情

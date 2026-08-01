@@ -61,4 +61,25 @@ describe("AI configuration", () => {
     expect(config.anthropicBaseUrl).toBe("https://relay.example/v1");
     expect(isAiConfigured(config)).toBe(true);
   });
+
+  it("uses the official DeepSeek API with V4 Flash at maximum reasoning", () => {
+    vi.stubEnv("RESEARCH_PROVIDER", "real");
+    vi.stubEnv("AI_PROVIDER", "deepseek");
+    vi.stubEnv("DEEPSEEK_API_KEY", "deepseek-test-key");
+    vi.stubEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/");
+    vi.stubEnv("AI_MODEL", "deepseek-v4-flash");
+    vi.stubEnv("AI_REASONING_EFFORT", "low");
+    vi.stubEnv("DATAFORSEO_LOGIN", "test-login");
+    vi.stubEnv("DATAFORSEO_PASSWORD", "test-password");
+
+    const config = loadConfig();
+
+    expect(config.researchProvider).toBe("real");
+    expect(config.aiProvider).toBe("deepseek");
+    expect(config.aiModel).toBe("deepseek-v4-flash");
+    expect(config.deepSeekApiKey).toBe("deepseek-test-key");
+    expect(config.deepSeekBaseUrl).toBe("https://api.deepseek.com");
+    expect(config.aiReasoningEffort).toBe("max");
+    expect(isAiConfigured(config)).toBe(true);
+  });
 });

@@ -51,6 +51,13 @@ export const RESEARCH_STAGE_MAX_OUTPUT_TOKENS = {
   plan: 4_000,
 } as const;
 
+export const DEEPSEEK_RESEARCH_STAGE_MAX_OUTPUT_TOKENS = {
+  researcher: 8_192,
+  debate: 8_192,
+  judge: 16_384,
+  plan: 8_192,
+} as const;
+
 export function unwrapResearchStreamError(
   error: unknown,
   streamedError: unknown,
@@ -445,18 +452,22 @@ ${JSON.stringify(evidenceSnapshot)}
           const attempt = requestAttempt;
           const startedAt = Date.now();
           let streamedError: unknown;
+          const maxOutputTokens =
+            config.aiProvider === "deepseek"
+              ? DEEPSEEK_RESEARCH_STAGE_MAX_OUTPUT_TOKENS[stage]
+              : RESEARCH_STAGE_MAX_OUTPUT_TOKENS[stage];
           logEvent("info", "research_ai_stage_started", {
             opportunityId: opportunity.id,
             stage,
             attempt,
-            maxOutputTokens: RESEARCH_STAGE_MAX_OUTPUT_TOKENS[stage],
+            maxOutputTokens,
             streaming: true,
           });
           try {
             const result = streamText({
               ...common(),
               output: Output.object({ schema }),
-              maxOutputTokens: RESEARCH_STAGE_MAX_OUTPUT_TOKENS[stage],
+              maxOutputTokens,
               onError: ({ error }) => {
                 streamedError = error;
               },

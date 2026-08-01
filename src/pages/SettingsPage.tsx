@@ -53,6 +53,7 @@ function settingsUpdate(
 }
 
 const modelSuggestions = {
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
   anthropic: ["claude-opus-5", "claude-sonnet-4-5"],
   openai: ["gpt-5.6-sol", "gpt-5.6-terra"],
   gateway: ["openai/gpt-5.6-sol", "anthropic/claude-opus-5"],
@@ -198,9 +199,11 @@ export function SettingsPage() {
                   change("aiModel", modelSuggestions[provider][0]);
                   if (provider === "anthropic") change("aiBaseUrl", "https://api.anthropic.com/v1");
                   if (provider === "openai") change("aiBaseUrl", "https://api.openai.com/v1");
+                  if (provider === "deepseek") change("aiBaseUrl", "https://api.deepseek.com");
                   if (provider === "gateway") change("aiBaseUrl", "");
                 }}
               >
+                <option value="deepseek">DeepSeek 官方 API</option>
                 <option value="anthropic">Anthropic 协议</option>
                 <option value="openai">OpenAI Responses 协议</option>
                 <option value="gateway">Vercel AI Gateway</option>
@@ -219,7 +222,14 @@ export function SettingsPage() {
               </datalist>
             </Field>
             {form.aiProvider !== "gateway" && (
-              <Field label="Base URL" hint="Anthropic 地址会自动补齐 /v1。">
+              <Field
+                label="Base URL"
+                hint={
+                  form.aiProvider === "deepseek"
+                    ? "DeepSeek 官方地址为 https://api.deepseek.com。"
+                    : "Anthropic 地址会自动补齐 /v1。"
+                }
+              >
                 <input
                   type="url"
                   value={form.aiBaseUrl}
@@ -405,6 +415,9 @@ export function SettingsPage() {
           <small>最多覆盖的新信号（估算）</small>
         </div>
         <ul>
+          {form.aiProvider === "deepseek" && (
+            <li><Bot size={15} />思考模式开启，推理强度 max</li>
+          )}
           <li><CheckCircle2 size={15} />{form.discoveryAiSignalLimit} 条/批，最多 {form.discoveryAiMaxBatchesPerRun} 批</li>
           <li><ShieldCheck size={15} />API Key 仅加密保存，不会返回浏览器</li>
           <li><Coins size={15} />自动发现每日上限 ${form.maxDataForSeoDiscoveryCostPerDayUsd.toFixed(2)}</li>

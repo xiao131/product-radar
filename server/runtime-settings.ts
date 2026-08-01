@@ -13,10 +13,11 @@ const RUNTIME_SETTINGS_KEY = "runtime_preferences_v1";
 const SECRET_PREFIX = "encrypted_ai_key_v1:";
 
 const storedRuntimeSettingsSchema = z.object({
-  aiProvider: z.enum(["openai", "anthropic", "gateway"]),
+  aiProvider: z.enum(["openai", "anthropic", "deepseek", "gateway"]),
   aiModel: z.string().trim().min(1).max(120),
   openAiBaseUrl: httpUrlSchema,
   anthropicBaseUrl: httpUrlSchema,
+  deepSeekBaseUrl: httpUrlSchema.default("https://api.deepseek.com"),
   aiRequestTimeoutMs: z.number().int().min(30_000).max(30 * 60 * 1_000),
   researchAiConcurrency: z.number().int().min(1).max(3).default(1),
   providerMaxRetries: z.number().int().min(0).max(3),
@@ -41,7 +42,7 @@ const storedRuntimeSettingsSchema = z.object({
 
 export const runtimeSettingsUpdateSchema = z
   .object({
-    aiProvider: z.enum(["openai", "anthropic", "gateway"]),
+    aiProvider: z.enum(["openai", "anthropic", "deepseek", "gateway"]),
     aiModel: z.string().trim().min(1).max(120),
     aiBaseUrl: z.string().trim().max(300),
     aiApiKey: z.string().trim().max(1_000).optional(),
@@ -188,6 +189,7 @@ function preferencesFromConfig(config: AppConfig): StoredRuntimeSettings {
     aiModel: config.aiModel,
     openAiBaseUrl: config.openAiBaseUrl,
     anthropicBaseUrl: config.anthropicBaseUrl,
+    deepSeekBaseUrl: config.deepSeekBaseUrl,
     aiRequestTimeoutMs: config.aiRequestTimeoutMs,
     researchAiConcurrency: config.researchAiConcurrency,
     providerMaxRetries: config.providerMaxRetries,
@@ -253,9 +255,15 @@ export function applyStoredRuntimeSettings(
     config.sessionSecret,
   );
   const gatewayKey = loadEncryptedSecret(db, "gateway", config.sessionSecret);
+  const deepSeekKey = loadEncryptedSecret(
+    db,
+    "deepseek",
+    config.sessionSecret,
+  );
   if (openAiKey) config.openAiApiKey = openAiKey;
   if (anthropicKey) config.anthropicApiKey = anthropicKey;
   if (gatewayKey) config.aiGatewayApiKey = gatewayKey;
+  if (deepSeekKey) config.deepSeekApiKey = deepSeekKey;
   return config;
 }
 
@@ -285,6 +293,10 @@ export function previewRuntimeSettings(
       input.aiProvider === "anthropic"
         ? anthropicBaseUrl(input.aiBaseUrl)
         : current.anthropicBaseUrl,
+    deepSeekBaseUrl:
+      input.aiProvider === "deepseek"
+        ? normalizedBaseUrl(input.aiBaseUrl)
+        : current.deepSeekBaseUrl,
     aiRequestTimeoutMs: input.aiRequestTimeoutSeconds * 1_000,
     researchAiConcurrency: input.researchAiConcurrency,
     providerMaxRetries: input.providerMaxRetries,
@@ -320,6 +332,7 @@ export function previewRuntimeSettings(
     if (input.aiProvider === "openai") preview.openAiApiKey = apiKey;
     if (input.aiProvider === "anthropic") preview.anthropicApiKey = apiKey;
     if (input.aiProvider === "gateway") preview.aiGatewayApiKey = apiKey;
+    if (input.aiProvider === "deepseek") preview.deepSeekApiKey = apiKey;
   }
   return { preview, preferences: next };
 }
@@ -354,13 +367,17 @@ export function runtimeSettingsResponse(config: AppConfig) {
       ? config.openAiBaseUrl
       : config.aiProvider === "anthropic"
         ? config.anthropicBaseUrl
-        : "";
+        : config.aiProvider === "deepseek"
+          ? config.deepSeekBaseUrl
+          : "";
   const aiKeyConfigured =
     config.aiProvider === "openai"
       ? Boolean(config.openAiApiKey)
       : config.aiProvider === "anthropic"
         ? Boolean(config.anthropicApiKey)
-        : Boolean(config.aiGatewayApiKey);
+        : config.aiProvider === "deepseek"
+          ? Boolean(config.deepSeekApiKey)
+          : Boolean(config.aiGatewayApiKey);
   return {
     aiProvider: config.aiProvider,
     aiModel: config.aiModel,

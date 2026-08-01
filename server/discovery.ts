@@ -559,6 +559,9 @@ async function discoverCandidatesWithAi(
     const result = await generateText({
       model: createResearchAiModel(config),
       providerOptions: createResearchAiProviderOptions(config),
+      ...(config.aiProvider === "deepseek"
+        ? { maxOutputTokens: 8_192 }
+        : {}),
       maxRetries: config.providerMaxRetries,
       abortSignal: AbortSignal.timeout(config.aiRequestTimeoutMs),
       output: Output.object({ schema: automaticDiscoveryOutputSchema }),

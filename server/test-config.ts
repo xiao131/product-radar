@@ -17,6 +17,7 @@ export function createTestConfig(
     aiModel: "openai/gpt-5.6-terra",
     openAiBaseUrl: "https://api.openai.com/v1",
     anthropicBaseUrl: "https://api.anthropic.com/v1",
+    deepSeekBaseUrl: "https://api.deepseek.com",
     aiReasoningEffort: "xhigh",
     aiDisableResponseStorage: true,
     aiRequestTimeoutMs: 1_000,

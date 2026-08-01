@@ -519,7 +519,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
             model: createResearchAiModel(preview),
             providerOptions: createResearchAiProviderOptions(preview),
             prompt: "只回复：连接正常",
-            maxOutputTokens: 32,
+            maxOutputTokens: preview.aiProvider === "deepseek" ? 1_024 : 32,
             maxRetries: 0,
             abortSignal: AbortSignal.timeout(preview.aiRequestTimeoutMs),
           });

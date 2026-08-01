@@ -14,7 +14,7 @@
 - 调研详情：展示 AI 结论、评分、Web/iOS 平台判断、证据和历史变化；
 - 产品库：手工添加和管理 Web、iOS、Web+iOS 产品；
 - 信号收件箱：添加 IDEA、评论、链接或导入 CSV；
-- 调研任务：将 Signal 转为候选，对候选执行三阶段 AI 判断；
+- 调研任务：将 Signal 转为候选，对候选执行四阶段 AI 判断；
 - 数据更新：保存研究版本、分数变化和变化原因；
 - 本地持久化：SQLite；
 - 可替换 Provider：默认演示 Provider，无密钥也能测试；配置密钥后调用真实 Provider。
@@ -37,7 +37,7 @@ Icons: Lucide React
 Backend: Express 5 + TypeScript
 Database: SQLite + better-sqlite3
 Validation: Zod
-AI: Vercel AI SDK 7 + OpenAI Responses / AI Gateway（可选）
+AI: Vercel AI SDK 7 + DeepSeek / OpenAI Responses / Anthropic Messages / AI Gateway
 Tests: Vitest + Supertest
 Browser QA: 本地浏览器自动化
 ```
@@ -244,13 +244,16 @@ DISCOVERY_AI_SIGNAL_LIMIT=60
 DISCOVERY_AI_MAX_BATCHES_PER_RUN=5
 SCHEDULER_DISCOVERY_HOUR=3
 
-AI_PROVIDER=openai
-OPENAI_BASE_URL=https://mdkj.lol
-OPENAI_API_KEY=
-AI_MODEL=gpt-5.6-terra
-AI_REASONING_EFFORT=xhigh
+AI_PROVIDER=deepseek
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_API_KEY=
+AI_MODEL=deepseek-v4-flash
+AI_REASONING_EFFORT=max
 AI_DISABLE_RESPONSE_STORAGE=true
 AI_REQUEST_TIMEOUT_MS=600000
+
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=
 
 ANTHROPIC_BASE_URL=
 ANTHROPIC_API_KEY=
@@ -263,13 +266,15 @@ AI_GATEWAY_API_KEY=
 
 切换到真实调研需要同时配置：
 
-- `OPENAI_API_KEY`（`AI_PROVIDER=openai`）、`ANTHROPIC_API_KEY`
+- `DEEPSEEK_API_KEY`（`AI_PROVIDER=deepseek`）、`OPENAI_API_KEY`
+  （`AI_PROVIDER=openai`）、`ANTHROPIC_API_KEY`
   （`AI_PROVIDER=anthropic`）或 `AI_GATEWAY_API_KEY`（`AI_PROVIDER=gateway`）：
-  执行 Researcher、Advocate/Critic、Judge 三阶段判断；Anthropic 模式也兼容
+  执行 Researcher、Advocate/Critic、Judge、MVP Plan 四阶段判断；Anthropic 模式也兼容
   从 `OPENAI_API_KEY` / `OPENAI_BASE_URL` 读取已有中转配置；
 - `DATAFORSEO_LOGIN` 与 `DATAFORSEO_PASSWORD`：获取关键词搜索量、月度变化、
   CPC、Google Organic 竞品和 Apple App Search 市场数据。
 
+DeepSeek 模式使用官方 Chat Completions API，开启思考并固定最高推理强度 `max`；
 OpenAI 模式使用 Responses API，并默认发送 `store=false`；Anthropic 模式使用
 Messages API。Reddit 与 X 可以先
 通过手工信号或 CSV 导入；信号在处理或关联后会成为带原文与来源的证据。

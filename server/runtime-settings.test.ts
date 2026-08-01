@@ -19,9 +19,9 @@ describe("runtime settings", () => {
     });
 
     saveRuntimeSettings(database, config, {
-      aiProvider: "anthropic",
-      aiModel: "claude-opus-5",
-      aiBaseUrl: "https://relay.example",
+      aiProvider: "deepseek",
+      aiModel: "deepseek-v4-flash",
+      aiBaseUrl: "https://api.deepseek.com/",
       aiApiKey: "secret-provider-key",
       aiRequestTimeoutSeconds: 600,
       researchAiConcurrency: 1,
@@ -49,8 +49,8 @@ describe("runtime settings", () => {
       .prepare("SELECT value_json FROM settings")
       .all() as Array<{ value_json: string }>;
     expect(JSON.stringify(stored)).not.toContain("secret-provider-key");
-    expect(config.anthropicApiKey).toBe("secret-provider-key");
-    expect(config.anthropicBaseUrl).toBe("https://relay.example/v1");
+    expect(config.deepSeekApiKey).toBe("secret-provider-key");
+    expect(config.deepSeekBaseUrl).toBe("https://api.deepseek.com");
     expect(config.aiRequestTimeoutMs).toBe(600_000);
     expect(config.researchAiConcurrency).toBe(1);
     expect(config.researchMarkets.map((market) => market.countryCode)).toEqual([
@@ -76,8 +76,9 @@ describe("runtime settings", () => {
       availableResearchMarkets: config.availableResearchMarkets,
     });
     applyStoredRuntimeSettings(database, restarted);
-    expect(restarted.anthropicApiKey).toBe("secret-provider-key");
-    expect(restarted.aiModel).toBe("claude-opus-5");
+    expect(restarted.deepSeekApiKey).toBe("secret-provider-key");
+    expect(restarted.deepSeekBaseUrl).toBe("https://api.deepseek.com");
+    expect(restarted.aiModel).toBe("deepseek-v4-flash");
     expect(restarted.aiRequestTimeoutMs).toBe(600_000);
     expect(restarted.researchAiConcurrency).toBe(1);
     database.close();
