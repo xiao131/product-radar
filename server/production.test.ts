@@ -178,6 +178,27 @@ describe("production decision and budgets", () => {
     expect(attempts).toBe(2);
   });
 
+  it("allows a second structured-output repair before failing the stage", async () => {
+    const invalidObject = new NoObjectGeneratedError({
+      message: "could not validate the response",
+      cause: new Error("missing field"),
+      text: "{}",
+      response: undefined as never,
+      usage: undefined as never,
+      finishReason: undefined as never,
+    });
+    let attempts = 0;
+
+    const result = await retryInvalidStructuredOutput(async () => {
+      attempts += 1;
+      if (attempts < 3) throw invalidObject;
+      return "repaired-on-third-attempt";
+    });
+
+    expect(result).toBe("repaired-on-third-attempt");
+    expect(attempts).toBe(3);
+  });
+
   it("reports partial and fully failed research jobs accurately", () => {
     expect(
       classifyJobResult("RESEARCH", {

@@ -68,12 +68,19 @@ export async function retryInvalidStructuredOutput<T>(
   execute: (structuredRetry: boolean) => Promise<T>,
   onRetry: (error: NoObjectGeneratedError) => void = () => undefined,
 ) {
-  try {
-    return await execute(false);
-  } catch (error) {
-    if (!NoObjectGeneratedError.isInstance(error)) throw error;
-    onRetry(error);
-    return execute(true);
+  const maxStructuredRetries = 2;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await execute(attempt > 0);
+    } catch (error) {
+      if (
+        !NoObjectGeneratedError.isInstance(error) ||
+        attempt >= maxStructuredRetries
+      ) {
+        throw error;
+      }
+      onRetry(error);
+    }
   }
 }
 
@@ -430,11 +437,12 @@ ${JSON.stringify(evidenceSnapshot)}
     system: string,
     prompt: string,
   ) => {
+    let requestAttempt = 0;
     const execute = async (structuredRetry: boolean) => {
-      let attempt = 0;
       return withRetry(
         async () => {
-          attempt += 1;
+          requestAttempt += 1;
+          const attempt = requestAttempt;
           const startedAt = Date.now();
           let streamedError: unknown;
           logEvent("info", "research_ai_stage_started", {
@@ -514,6 +522,13 @@ ${JSON.stringify(evidenceSnapshot)}
         opportunityId: opportunity.id,
         stage,
         model: config.aiModel,
+        nextAttempt: requestAttempt + 1,
+        finishReason: error.finishReason,
+        generatedTextLength: error.text?.length ?? 0,
+        validationError:
+          error.cause instanceof Error
+            ? error.cause.message.slice(0, 500)
+            : undefined,
       });
     });
   };
