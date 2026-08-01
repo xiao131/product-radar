@@ -4,6 +4,7 @@ import {
   hasCompletedJobToday,
   hasScheduledAttemptToday,
   recordScheduledSkip,
+  runSchedulerCycle,
   scheduledJobDecision,
 } from "./scheduler.js";
 import { createTestConfig } from "./test-config.js";
@@ -105,6 +106,37 @@ describe("cost-safe automatic scheduling", () => {
     expect(scheduledJobDecision(database, "RESEARCH")).toEqual({
       action: "ALREADY_ATTEMPTED",
     });
+    database.close();
+  });
+
+  it("continues later scheduled tasks when an earlier task fails", async () => {
+    const database = createDatabase(":memory:", false);
+    const calls: string[] = [];
+
+    await runSchedulerCycle(
+      database,
+      createTestConfig({
+        autoDiscoveryEnabled: true,
+        schedulerBackupHour: 0,
+        schedulerDiscoveryHour: 0,
+        schedulerResearchHour: 0,
+      }),
+      1,
+      {
+        backup: async () => {
+          calls.push("backup");
+        },
+        discovery: async () => {
+          calls.push("discovery");
+          throw new Error("discovery provider unavailable");
+        },
+        research: async () => {
+          calls.push("research");
+        },
+      },
+    );
+
+    expect(calls).toEqual(["backup", "discovery", "research"]);
     database.close();
   });
 });

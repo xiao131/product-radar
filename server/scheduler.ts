@@ -11,6 +11,12 @@ import { logEvent } from "./logger.js";
 
 export type ScheduledJobType = "DISCOVERY" | "RESEARCH" | "BACKUP";
 
+interface SchedulerJobRunners {
+  backup: () => Promise<unknown>;
+  discovery: () => Promise<unknown>;
+  research: () => Promise<unknown>;
+}
+
 interface CompletedJobToday {
   id: string;
   triggerType: "manual" | "scheduled" | "cli";
@@ -227,18 +233,12 @@ export function schedulerRuntimeStatus(
   };
 }
 
-export function startScheduler(db: RadarDatabase, config: AppConfig) {
-  if (!config.schedulerEnabled) return { stop() {} };
-  let stopped = false;
-  let running = false;
-  const runtime: SchedulerRuntimeState = {
-    startedAt: new Date().toISOString(),
-    lastTickAt: null,
-    nextTickAt: new Date(Date.now() + 5_000).toISOString(),
-    running: false,
-  };
-  schedulerStates.set(db, runtime);
-
+export async function runSchedulerCycle(
+  db: RadarDatabase,
+  config: AppConfig,
+  hour: number,
+  runners: SchedulerJobRunners,
+) {
   async function runScheduled(
     jobType: ScheduledJobType,
     run: () => Promise<unknown>,
@@ -253,27 +253,58 @@ export function startScheduler(db: RadarDatabase, config: AppConfig) {
     }
   }
 
+  async function runIsolated(
+    jobType: ScheduledJobType,
+    run: () => Promise<unknown>,
+  ) {
+    try {
+      await runScheduled(jobType, run);
+    } catch (error) {
+      if (!(error instanceof JobAlreadyRunningError)) {
+        logEvent("error", "scheduler_job_failed", {
+          jobType,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          message: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+  }
+
+  if (hour >= config.schedulerBackupHour) {
+    await runIsolated("BACKUP", runners.backup);
+  }
+  if (config.autoDiscoveryEnabled && hour >= config.schedulerDiscoveryHour) {
+    await runIsolated("DISCOVERY", runners.discovery);
+  }
+  if (hour >= config.schedulerResearchHour) {
+    await runIsolated("RESEARCH", runners.research);
+  }
+}
+
+export function startScheduler(db: RadarDatabase, config: AppConfig) {
+  if (!config.schedulerEnabled) return { stop() {} };
+  let stopped = false;
+  let running = false;
+  const runtime: SchedulerRuntimeState = {
+    startedAt: new Date().toISOString(),
+    lastTickAt: null,
+    nextTickAt: new Date(Date.now() + 5_000).toISOString(),
+    running: false,
+  };
+  schedulerStates.set(db, runtime);
+
   async function tick() {
     if (stopped || running) return;
     running = true;
     runtime.running = true;
     try {
       const hour = new Date().getHours();
-      if (hour >= config.schedulerBackupHour) {
-        await runScheduled("BACKUP", () =>
-          runBackupJob(db, config, "scheduled"),
-        );
-      }
-      if (config.autoDiscoveryEnabled && hour >= config.schedulerDiscoveryHour) {
-        await runScheduled("DISCOVERY", () =>
-          runDiscoveryJob(db, config, "scheduled"),
-        );
-      }
-      if (hour >= config.schedulerResearchHour) {
-        await runScheduled("RESEARCH", () =>
+      await runSchedulerCycle(db, config, hour, {
+        backup: () => runBackupJob(db, config, "scheduled"),
+        discovery: () => runDiscoveryJob(db, config, "scheduled"),
+        research: () =>
           runResearchJob(db, config, "scheduled", "standard"),
-        );
-      }
+      });
     } catch (error) {
       if (!(error instanceof JobAlreadyRunningError)) {
         logEvent("error", "scheduler_tick_failed", {
