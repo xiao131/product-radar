@@ -346,11 +346,6 @@ export function OpportunityRow({
         <button className="opportunity-name-button" onClick={onClick}>
           <strong>{copy.name}</strong>
           <span>{copy.oneLiner}</span>
-          {copy.name !== item.name && (
-            <small className="opportunity-original-name">
-              {t("原名", "Original")}: {item.name}
-            </small>
-          )}
           {item.selectedMarketCode && (
             <small className="opportunity-market-name">
               {marketName(item.selectedMarketCode, locale)}

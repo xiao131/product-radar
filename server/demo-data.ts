@@ -239,6 +239,21 @@ const englishOpportunityCopy: Record<
   },
 };
 
+const chineseOpportunityNames: Record<string, string> = {
+  "Screenshot Redactor": "截图隐私遮盖",
+  "Receipt Vault": "票据保险箱",
+  "Metadata Cleaner": "元数据清理器",
+  "CSV Repair Bench": "CSV 修复工作台",
+  "App Review Miner": "应用评论挖掘器",
+  "Focus Walk": "专注步行",
+  "Quiet Invoice": "轻量发票",
+  "Voice Note Triage": "语音笔记整理",
+  "Changelog Lens": "更新日志透镜",
+  "Habit Contract": "习惯契约",
+  "Meeting Cost Clock": "会议成本计时器",
+  "AI Prompt Bookmark": "AI 提示词书签",
+};
+
 const products = [
   {
     name: "Photo GPS",
@@ -354,7 +369,7 @@ export function seedDemoData(db: Database.Database) {
         freshness,
         localizedContent: JSON.stringify({
           "zh-CN": {
-            name: item.name,
+            name: chineseOpportunityNames[item.name] ?? item.name,
             oneLiner: item.oneLiner,
             targetUser: item.targetUser,
             changeSummary: item.change,

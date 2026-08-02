@@ -367,9 +367,6 @@ export function OpportunityDetailPage() {
             )}
           </div>
           <h2>{opportunityCopy.name}</h2>
-          {opportunityCopy.name !== opportunity.name && (
-            <small className="detail-original-name">{t("原名", "Original")}: {opportunity.name}</small>
-          )}
           <p>{opportunityCopy.oneLiner}</p>
           <span className="detail-target">{t("目标用户", "Target user")}：{opportunityCopy.targetUser}</span>
           <div className="detail-market-tags">

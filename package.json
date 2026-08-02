@@ -27,6 +27,7 @@
     "auth:hash": "tsx server/hash-password.ts",
     "auth:reset": "tsx server/reset-admin.ts",
     "backup:restore": "tsx server/restore-backup.ts",
+    "localize:content": "tsx server/localize-content.ts",
     "research:batch": "tsx server/batch-research.ts",
     "seed": "tsx server/seed.ts",
     "start": "NODE_ENV=production tsx server/index.ts"

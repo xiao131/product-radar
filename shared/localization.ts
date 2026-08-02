@@ -37,10 +37,27 @@ export function localizedOpportunity(
   locale: UiLocale,
 ): LocalizedOpportunityContent {
   const localized = opportunity.localizedContent?.[locale];
+  if (!localized) {
+    return locale === "zh-CN"
+      ? {
+          name: "中文内容生成中",
+          oneLiner: "该候选的中文展示内容尚未生成，请稍后刷新。",
+          targetUser: "待补充中文目标用户",
+          changeSummary: "中文更新说明生成中。",
+        }
+      : {
+          name: "English copy pending",
+          oneLiner: "The English display copy for this candidate is being generated.",
+          targetUser: "English target audience pending",
+          changeSummary: "English update summary pending.",
+        };
+  }
   return {
-    name: localized?.name || opportunity.name,
-    oneLiner: localized?.oneLiner || opportunity.oneLiner,
-    targetUser: localized?.targetUser || opportunity.targetUser,
-    changeSummary: localized?.changeSummary || opportunity.changeSummary,
+    name: localized.name,
+    oneLiner: localized.oneLiner,
+    targetUser: localized.targetUser,
+    changeSummary:
+      localized.changeSummary ||
+      (locale === "zh-CN" ? "暂无中文更新说明。" : "No English update summary yet."),
   };
 }

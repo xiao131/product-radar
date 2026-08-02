@@ -44,4 +44,24 @@ describe("content localization", () => {
     );
     expect(opportunity.name).toBe("Canonical name");
   });
+
+  it("never leaks the other language when localized copy is missing", () => {
+    const opportunity = {
+      name: "English-only canonical name",
+      oneLiner: "English-only canonical description",
+      targetUser: "English-only users",
+      changeSummary: "English-only update",
+      localizedContent: {},
+    } as Opportunity;
+
+    expect(localizedOpportunity(opportunity, "zh-CN")).toEqual({
+      name: "中文内容生成中",
+      oneLiner: "该候选的中文展示内容尚未生成，请稍后刷新。",
+      targetUser: "待补充中文目标用户",
+      changeSummary: "中文更新说明生成中。",
+    });
+    expect(localizedOpportunity(opportunity, "en").name).toBe(
+      "English copy pending",
+    );
+  });
 });
