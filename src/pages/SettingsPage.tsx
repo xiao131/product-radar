@@ -3,13 +3,17 @@ import {
   CheckCircle2,
   Clock3,
   Coins,
+  KeyRound,
   LoaderCircle,
   Radar,
   Save,
   ShieldCheck,
+  UserRound,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type {
+  AdminAccount,
+  AdminAccountUpdate,
   AiConnectionTestResult,
   RuntimeSettings,
   RuntimeSettingsUpdate,
@@ -67,6 +71,16 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [account, setAccount] = useState<AdminAccount | null>(null);
+  const [accountForm, setAccountForm] = useState({
+    username: "",
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [accountError, setAccountError] = useState("");
+  const [accountFeedback, setAccountFeedback] = useState("");
+  const [savingAccount, setSavingAccount] = useState(false);
 
   function load() {
     setError("");
@@ -81,7 +95,27 @@ export function SettingsPage() {
       );
   }
 
-  useEffect(load, []);
+  function loadAccount() {
+    setAccountError("");
+    api<AdminAccount>("/api/auth/account")
+      .then((next) => {
+        setAccount(next);
+        setAccountForm((current) => ({
+          ...current,
+          username: next.username ?? "",
+        }));
+      })
+      .catch((caught) =>
+        setAccountError(
+          caught instanceof Error ? caught.message : "读取账号失败",
+        ),
+      );
+  }
+
+  useEffect(() => {
+    load();
+    loadAccount();
+  }, []);
 
   const estimatedSignals = useMemo(() => {
     if (!form) return 0;
@@ -158,6 +192,42 @@ export function SettingsPage() {
     }
   }
 
+  async function saveAccount(event: FormEvent) {
+    event.preventDefault();
+    if (accountForm.newPassword !== accountForm.confirmPassword) {
+      setAccountError("两次输入的新密码不一致");
+      return;
+    }
+    setSavingAccount(true);
+    setAccountError("");
+    setAccountFeedback("");
+    const update: AdminAccountUpdate = {
+      username: accountForm.username,
+      currentPassword: accountForm.currentPassword,
+      ...(accountForm.newPassword
+        ? { newPassword: accountForm.newPassword }
+        : {}),
+    };
+    try {
+      const saved = await api<AdminAccount>("/api/auth/account", {
+        method: "PATCH",
+        body: JSON.stringify(update),
+      });
+      setAccount(saved);
+      setAccountForm({
+        username: saved.username ?? "",
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+      setAccountFeedback("账号信息已更新，旧登录会话已失效。");
+    } catch (caught) {
+      setAccountError(caught instanceof Error ? caught.message : "保存账号失败");
+    } finally {
+      setSavingAccount(false);
+    }
+  }
+
   if (error && !form) return <ErrorState message={error} retry={load} />;
   if (!settings || !form) return <LoadingState label="正在读取运行设置" />;
 
@@ -178,6 +248,142 @@ export function SettingsPage() {
           <span className={`mode-stamp mode-stamp--${settings.researchMode.toLowerCase()}`}>
             {settings.researchMode === "REAL" ? "真实数据" : "演示数据"}
           </span>
+        </section>
+
+        <section className="panel settings-section">
+          <header className="settings-section__header">
+            <UserRound size={19} />
+            <div>
+              <span className="eyebrow">ACCOUNT &amp; SECURITY</span>
+              <h2>账号管理</h2>
+              <p>修改登录账号，或在需要时更换密码。</p>
+            </div>
+          </header>
+          {account?.configured ? (
+            <form className="account-settings" onSubmit={saveAccount}>
+              <div className="settings-fields settings-fields--two">
+                <Field
+                  label="登录账号"
+                  hint="3-64 位，可使用字母、数字、点、下划线和连字符。"
+                >
+                  <input
+                    name="username"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    minLength={3}
+                    maxLength={64}
+                    pattern="[A-Za-z0-9._-]+"
+                    value={accountForm.username}
+                    onChange={(event) => {
+                      setAccountForm((current) => ({
+                        ...current,
+                        username: event.target.value,
+                      }));
+                      setAccountFeedback("");
+                    }}
+                    required
+                  />
+                </Field>
+                <Field
+                  label="当前密码"
+                  hint="保存任何账号修改时都需要验证。"
+                >
+                  <input
+                    name="currentPassword"
+                    type="password"
+                    autoComplete="current-password"
+                    value={accountForm.currentPassword}
+                    onChange={(event) => {
+                      setAccountForm((current) => ({
+                        ...current,
+                        currentPassword: event.target.value,
+                      }));
+                      setAccountFeedback("");
+                    }}
+                    required
+                  />
+                </Field>
+                <Field
+                  label="新密码"
+                  hint="不修改密码时留空；至少 12 个字符。"
+                >
+                  <input
+                    name="newPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={300}
+                    value={accountForm.newPassword}
+                    onChange={(event) => {
+                      setAccountForm((current) => ({
+                        ...current,
+                        newPassword: event.target.value,
+                      }));
+                      setAccountFeedback("");
+                    }}
+                  />
+                </Field>
+                <Field label="确认新密码">
+                  <input
+                    name="confirmPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={accountForm.newPassword ? 12 : undefined}
+                    maxLength={300}
+                    value={accountForm.confirmPassword}
+                    onChange={(event) => {
+                      setAccountForm((current) => ({
+                        ...current,
+                        confirmPassword: event.target.value,
+                      }));
+                      setAccountFeedback("");
+                    }}
+                    required={Boolean(accountForm.newPassword)}
+                  />
+                </Field>
+              </div>
+              <div className="account-settings__actions">
+                <div aria-live="polite">
+                  {accountFeedback && (
+                    <div className="form-success" role="status">
+                      {accountFeedback}
+                    </div>
+                  )}
+                  {accountError && (
+                    <div className="form-error" role="alert">
+                      {accountError}
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="button button--primary"
+                  type="submit"
+                  disabled={
+                    savingAccount ||
+                    !accountForm.currentPassword ||
+                    (!accountForm.newPassword &&
+                      accountForm.username.toLowerCase() === account.username)
+                  }
+                >
+                  {savingAccount ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <KeyRound size={16} />
+                  )}
+                  {savingAccount ? "正在保存…" : "保存账号"}
+                </button>
+              </div>
+            </form>
+          ) : account ? (
+            <div className="account-settings__notice">
+              当前未启用账号登录。配置初始密码后，这里会显示账号管理表单。
+            </div>
+          ) : accountError ? (
+            <div className="form-error" role="alert">{accountError}</div>
+          ) : (
+            <LoadingState label="正在读取账号" />
+          )}
         </section>
 
         <section className="panel settings-section">

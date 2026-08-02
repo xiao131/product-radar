@@ -20,6 +20,26 @@ export type SignalSource =
   | "CUSTOMER"
   | "OTHER";
 
+export interface AuthSession {
+  authenticated: boolean;
+  authRequired: boolean;
+  csrfToken: string | null;
+  expiresAt?: number | null;
+  username?: string | null;
+}
+
+export interface AdminAccount {
+  configured: boolean;
+  username: string | null;
+  updatedAt: string | null;
+}
+
+export interface AdminAccountUpdate {
+  username: string;
+  currentPassword: string;
+  newPassword?: string;
+}
+
 export type DimensionKey =
   | "demand"
   | "pain"

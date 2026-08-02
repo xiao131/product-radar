@@ -2771,6 +2771,29 @@ body.modal-open {
   background: var(--white);
 }
 
+.login-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border: 1px solid var(--line);
+  background: var(--white);
+}
+
+.login-input svg {
+  color: #737872;
+}
+
+.login-input input {
+  border: 0;
+}
+
+.login-input:focus-within {
+  outline: 2px solid rgba(31, 82, 61, 0.22);
+  outline-offset: 1px;
+}
+
 .sidebar-logout {
   margin-top: 12px;
   display: flex;
@@ -3070,6 +3093,33 @@ body.modal-open {
 
 .settings-fields--three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.account-settings {
+  display: grid;
+  gap: 22px;
+}
+
+.account-settings__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.account-settings__actions > div {
+  flex: 1;
+}
+
+.account-settings__notice {
+  padding: 16px 18px;
+  color: #666d67;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .settings-switch {
@@ -3460,5 +3510,10 @@ body.modal-open {
   .settings-fields--two,
   .settings-fields--three {
     grid-template-columns: 1fr;
+  }
+
+  .account-settings__actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

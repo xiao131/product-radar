@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { X } from "lucide-react";
-import type { Signal } from "../shared/types";
+import type { AuthSession, Signal } from "../shared/types";
 import { LoadingState, Modal } from "./components";
 import { SignalForm } from "./forms";
 import { AppLayout } from "./layout";
@@ -27,12 +27,6 @@ const SignalsPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })),
 );
-
-interface AuthSession {
-  authenticated: boolean;
-  authRequired: boolean;
-  csrfToken: string | null;
-}
 
 function RoutedPage() {
   const path = usePath();

@@ -395,7 +395,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
   app.use(requestLogger);
   app.use(express.json({ limit: "2mb" }));
 
-  const security = createSecurity(config);
+  const security = createSecurity(config, db);
   const researchRateLimiter = fixedWindowRateLimiter(
     config.researchRateLimitPerHour,
     60 * 60 * 1_000,
@@ -456,6 +456,14 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     next();
   });
   app.post("/api/auth/logout", security.logout);
+  app.get("/api/auth/account", security.accountResponse);
+  app.patch("/api/auth/account", async (request, response, next) => {
+    try {
+      await security.updateAccount(request, response);
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/api/settings", (_request, response) => {
     response.json({

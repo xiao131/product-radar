@@ -342,6 +342,34 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 9,
+    name: "single administrator account",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS admin_account (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+          password_hash TEXT NOT NULL,
+          session_version INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
+  {
+    version: 10,
+    name: "use a less common default administrator username",
+    up(db) {
+      db.prepare(
+        `UPDATE admin_account
+         SET username = 'xx131', session_version = session_version + 1,
+             updated_at = ?
+         WHERE id = 1 AND username = 'admin' COLLATE NOCASE`,
+      ).run(new Date().toISOString());
+    },
+  },
 ];
 
 export function migrateDatabase(db: Database.Database) {

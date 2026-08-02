@@ -1,19 +1,14 @@
-import { LockKeyhole, Radar, ShieldCheck } from "lucide-react";
+import { LockKeyhole, Radar, ShieldCheck, UserRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import type { AuthSession } from "../../shared/types";
 import { api } from "../api";
-
-interface AuthSession {
-  authenticated: boolean;
-  authRequired: boolean;
-  csrfToken: string | null;
-  expiresAt?: number | null;
-}
 
 export function LoginPage({
   onAuthenticated,
 }: {
   onAuthenticated: (session: AuthSession) => void;
 }) {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -25,7 +20,7 @@ export function LoginPage({
     try {
       const session = await api<AuthSession>("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       });
       onAuthenticated(session);
     } catch (caught) {
@@ -61,15 +56,34 @@ export function LoginPage({
           <span className="eyebrow">OPERATOR ACCESS</span>
           <h2>进入产品雷达</h2>
           <label>
-            管理员密码
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoFocus
-              required
-            />
+            账号
+            <span className="login-input">
+              <UserRound size={16} />
+              <input
+                name="username"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoFocus
+                required
+              />
+            </span>
+          </label>
+          <label>
+            密码
+            <span className="login-input">
+              <LockKeyhole size={16} />
+              <input
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+            </span>
           </label>
           {error && <div className="form-error">{error}</div>}
           <button

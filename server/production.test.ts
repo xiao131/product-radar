@@ -13,6 +13,7 @@ import {
 } from "./jobs.js";
 import {
   latestSchemaVersion,
+  migrateDatabase,
   repairHistoricalJobOutcomes,
 } from "./migrations.js";
 import { mapOpportunity } from "./mappers.js";
@@ -52,11 +53,11 @@ describe("production security", () => {
     await agent.get("/api/dashboard").expect(401);
     await agent
       .post("/api/auth/login")
-      .send({ password: "wrong-password" })
+      .send({ username: "xx131", password: "wrong-password" })
       .expect(401);
     const login = await agent
       .post("/api/auth/login")
-      .send({ password })
+      .send({ username: "xx131", password })
       .expect(200);
     expect(login.body.csrfToken).toBeTruthy();
     const setCookie = login.headers["set-cookie"];
@@ -85,9 +86,87 @@ describe("production security", () => {
     expect(settings.headers["content-security-policy"]).toBeTruthy();
     database.close();
   });
+
+  it("updates the administrator credentials and invalidates older sessions", async () => {
+    const password = "correct-horse-battery-staple";
+    const newPassword = "new-correct-horse-battery-staple";
+    const config = createTestConfig({
+      authRequired: true,
+      adminUsername: "xx131",
+      adminPasswordHash: await hashPassword(password),
+      sessionSecret: "s".repeat(48),
+      publicOrigin: "http://radar.test",
+    });
+    const database = createDatabase(":memory:", true);
+    const app = createApp(database, config);
+    const currentAgent = request.agent(app);
+    const olderAgent = request.agent(app);
+
+    const currentLogin = await currentAgent
+      .post("/api/auth/login")
+      .send({ username: "xx131", password })
+      .expect(200);
+    await olderAgent
+      .post("/api/auth/login")
+      .send({ username: "xx131", password })
+      .expect(200);
+
+    const before = await currentAgent.get("/api/auth/account").expect(200);
+    expect(before.body).toMatchObject({ configured: true, username: "xx131" });
+
+    const updated = await currentAgent
+      .patch("/api/auth/account")
+      .set("Origin", config.publicOrigin)
+      .set("X-CSRF-Token", currentLogin.body.csrfToken)
+      .send({
+        username: "radar.owner",
+        currentPassword: password,
+        newPassword,
+      })
+      .expect(200);
+    expect(updated.body).toMatchObject({
+      configured: true,
+      username: "radar.owner",
+    });
+
+    await currentAgent.get("/api/dashboard").expect(200);
+    await olderAgent.get("/api/dashboard").expect(401);
+    await request(app)
+      .post("/api/auth/login")
+      .send({ username: "xx131", password })
+      .expect(401);
+    await request(app)
+      .post("/api/auth/login")
+      .send({ username: "radar.owner", password: newPassword })
+      .expect(200);
+    database.close();
+  });
 });
 
 describe("production persistence", () => {
+  it("renames the legacy default administrator account", () => {
+    const database = createDatabase(":memory:", {
+      seedDemoData: false,
+    });
+    const createdAt = new Date().toISOString();
+    database
+      .prepare(
+        `INSERT INTO admin_account (
+           id, username, password_hash, session_version, created_at, updated_at
+         ) VALUES (1, 'admin', 'test-hash', 1, ?, ?)`,
+      )
+      .run(createdAt, createdAt);
+    database.prepare("DELETE FROM schema_migrations WHERE version = 10").run();
+
+    migrateDatabase(database);
+
+    const account = database
+      .prepare("SELECT username, session_version FROM admin_account WHERE id = 1")
+      .get() as { username: string; session_version: number };
+    expect(account).toEqual({ username: "xx131", session_version: 2 });
+    database.close();
+  });
+
   it("migrates without demo data and creates a verified backup", async () => {
     const directory = fs.mkdtempSync(
       path.join(os.tmpdir(), "product-radar-production-"),
@@ -111,6 +190,9 @@ describe("production persistence", () => {
     const productIndexes = database
       .prepare("PRAGMA index_list(products)")
       .all() as Array<{ name: string; unique: number }>;
+    const adminColumns = database
+      .prepare("PRAGMA table_info(admin_account)")
+      .all() as Array<{ name: string }>;
     expect(migration.version).toBe(latestSchemaVersion());
     expect(products.count).toBe(0);
     expect(opportunityColumns).toEqual(
@@ -128,6 +210,13 @@ describe("production persistence", () => {
           name: "idx_product_source_opportunity",
           unique: 1,
         }),
+      ]),
+    );
+    expect(adminColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "username" }),
+        expect.objectContaining({ name: "password_hash" }),
+        expect.objectContaining({ name: "session_version" }),
       ]),
     );
 

@@ -315,8 +315,9 @@ npm run research:batch
 | `DATABASE_PATH` | `./data/product-radar.db` | 否 | SQLite 数据库文件 |
 | `DATABASE_BUSY_TIMEOUT_MS` | `5000` | 否 | 并发写入等待时间 |
 | `SEED_DEMO_DATA` | 开发为 `true` | 否 | 是否显式写入 Demo 数据；生产默认关闭 |
-| `AUTH_REQUIRED` | 生产为 `true` | 生产必需 | 生产环境必须启用单用户登录 |
-| `ADMIN_PASSWORD_HASH` | 空 | 生产鉴权必需 | `npm run auth:hash` 生成的 scrypt 哈希 |
+| `AUTH_REQUIRED` | 生产为 `true` | 生产必需 | 生产环境必须启用管理员账号登录 |
+| `ADMIN_USERNAME` | `xx131` | 否 | 首次创建管理员账号时使用 |
+| `ADMIN_PASSWORD_HASH` | 空 | 首次启动必需 | `npm run auth:hash` 生成的 scrypt 哈希；账号创建后可移除 |
 | `SESSION_SECRET` | 空 | 生产鉴权必需 | 至少 32 字符的会话签名密钥 |
 | `RESEARCH_PROVIDER` | `demo` | 生产必需 | 生产环境必须显式选择 `demo` 或 `real` |
 | `RESEARCH_FRESHNESS_DAYS` | `7` | 否 | 新鲜期内复用调研结果，避免重复付费 |
@@ -567,8 +568,10 @@ settings
 | `GET` | `/api/health/live` | 进程存活检查 |
 | `GET` | `/api/health/ready` | 数据库和迁移就绪检查 |
 | `GET` | `/api/auth/session` | 当前安全会话 |
-| `POST` | `/api/auth/login` | 单用户登录 |
+| `POST` | `/api/auth/login` | 管理员账号密码登录 |
 | `POST` | `/api/auth/logout` | 退出会话 |
+| `GET` | `/api/auth/account` | 当前管理员账号 |
+| `PATCH` | `/api/auth/account` | 修改账号或密码 |
 | `GET` | `/api/settings` | 当前运行模式与连接状态 |
 | `GET` | `/api/dashboard` | 首页数据 |
 | `GET` | `/api/operations/status` | 预算、任务、备份与新鲜度 |
@@ -697,7 +700,7 @@ BACKUP_DIRECTORY=/var/lib/product-radar/backups
 
 ### 生产登录
 
-先生成密码哈希：
+首次部署时生成密码哈希：
 
 ```bash
 RADAR_ADMIN_PASSWORD='使用密码管理器生成的长密码' npm run auth:hash
@@ -709,6 +712,7 @@ RADAR_ADMIN_PASSWORD='使用密码管理器生成的长密码' npm run auth:hash
 APP_ENV=production
 PUBLIC_ORIGIN=https://radar.example.com
 AUTH_REQUIRED=true
+ADMIN_USERNAME=xx131
 ADMIN_PASSWORD_HASH=scrypt$...
 SESSION_SECRET=至少32字符的高强度随机值
 SEED_DEMO_DATA=false
@@ -717,7 +721,18 @@ TRUST_PROXY_HOPS=1
 ```
 
 生产模式缺少这些值、关闭鉴权、未显式选择调研模式，或真实模式缺少 AI /
-DataForSEO 凭据时都会拒绝启动。
+DataForSEO 凭据时都会拒绝启动。首次启动后管理员账号会写入
+SQLite，之后可在「设置 → 账号管理」修改账号和密码，并移除
+`ADMIN_PASSWORD_HASH` 环境变量。
+
+忘记密码时，可在服务器上直接重置：
+
+```bash
+RADAR_ADMIN_PASSWORD='新的长密码' npm run auth:reset
+```
+
+需要同时修改账号时，再传入
+`RADAR_ADMIN_USERNAME='new-admin'`。重置后旧登录会话立即失效。
 
 ### Nginx 示例
 
@@ -799,7 +814,7 @@ npm run backup:restore -- \
 - Apple 数据当前以关键词竞品、评分与评论量为主，尚未自动抓取每个竞品的完整评论主题；
 - Reddit 与 X 没有使用官方专用连接器；当前会从 Google/Baidu 公开结果中识别
   Reddit、X 和论坛页面，也支持手工或 CSV 导入原文；
-- 当前是单用户登录，不是多租户 SaaS；
+- 当前是可修改账号密码的单管理员登录，不是多租户 SaaS；
 - SQLite 适合个人或小团队单实例使用，不适合多个写入节点。
 - 当前生产启动仍依赖 `tsx`；纯 Node 编译产物与 Docker 部署尚未实现。
 

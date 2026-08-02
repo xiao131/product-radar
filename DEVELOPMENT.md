@@ -192,6 +192,8 @@ GET    /api/health/ready
 GET    /api/auth/session
 POST   /api/auth/login
 POST   /api/auth/logout
+GET    /api/auth/account
+PATCH  /api/auth/account
 GET    /api/operations/status
 POST   /api/operations/research
 POST   /api/operations/discovery

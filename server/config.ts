@@ -76,6 +76,7 @@ export interface AppConfig {
   discoveryAiSignalLimit: number;
   discoveryAiMaxBatchesPerRun: number;
   authRequired: boolean;
+  adminUsername: string;
   adminPasswordHash?: string;
   sessionSecret?: string;
   sessionTtlHours: number;
@@ -119,6 +120,14 @@ function integerInRange(
 function requireProductionValue(name: string, value: string | undefined) {
   if (!value) throw new Error(`生产配置缺少 ${name}`);
   return value;
+}
+
+function adminUsernameValue(value: string | undefined) {
+  const username = (value?.trim() || "xx131").toLowerCase();
+  if (!/^[a-z0-9._-]{3,64}$/.test(username)) {
+    throw new Error("ADMIN_USERNAME 只能包含 3-64 位小写字母、数字、点、下划线或连字符");
+  }
+  return username;
 }
 
 function aiProviderValue(value: string | undefined): AiProvider {
@@ -287,11 +296,11 @@ export function loadConfig(): AppConfig {
       );
     }
     if (!authRequired) throw new Error("生产环境不允许关闭 AUTH_REQUIRED");
-    const passwordHash = requireProductionValue(
-      "ADMIN_PASSWORD_HASH",
-      process.env.ADMIN_PASSWORD_HASH,
-    );
-    if (!/^scrypt\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(passwordHash)) {
+    const passwordHash = process.env.ADMIN_PASSWORD_HASH;
+    if (
+      passwordHash &&
+      !/^scrypt\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(passwordHash)
+    ) {
       throw new Error("ADMIN_PASSWORD_HASH 格式无效，请使用 npm run auth:hash 生成");
     }
     const secret = requireProductionValue("SESSION_SECRET", process.env.SESSION_SECRET);
@@ -471,6 +480,7 @@ export function loadConfig(): AppConfig {
       20,
     ),
     authRequired,
+    adminUsername: adminUsernameValue(process.env.ADMIN_USERNAME),
     adminPasswordHash: process.env.ADMIN_PASSWORD_HASH,
     sessionSecret: process.env.SESSION_SECRET,
     sessionTtlHours: positiveNumber(process.env.SESSION_TTL_HOURS, 24),

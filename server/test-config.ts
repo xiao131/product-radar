@@ -70,6 +70,7 @@ export function createTestConfig(
     discoveryAiSignalLimit: 120,
     discoveryAiMaxBatchesPerRun: 5,
     authRequired: false,
+    adminUsername: "xx131",
     sessionTtlHours: 24,
     schedulerEnabled: false,
     schedulerPollIntervalMs: 60_000,

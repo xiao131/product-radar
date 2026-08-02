@@ -8,19 +8,44 @@ import { promisify } from "node:util";
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
+import type { RadarDatabase } from "./db.js";
 import { logEvent } from "./logger.js";
 
 const scrypt = promisify(scryptCallback);
 const sessionCookie = "product_radar_session";
 const csrfCookie = "product_radar_csrf";
-const passwordSchema = z.object({
+const usernameSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(64)
+  .regex(/^[a-zA-Z0-9._-]+$/, "账号只能包含字母、数字、点、下划线或连字符")
+  .transform((value) => value.toLowerCase());
+const loginSchema = z.object({
+  username: usernameSchema,
   password: z.string().min(1).max(300),
+});
+const accountUpdateSchema = z.object({
+  username: usernameSchema,
+  currentPassword: z.string().min(1).max(300),
+  newPassword: z.string().min(12).max(300).optional(),
 });
 
 interface SessionPayload {
-  version: 1;
+  version: 2;
+  userId: number;
+  sessionVersion: number;
   expiresAt: number;
   csrfToken: string;
+}
+
+interface AdminAccountRow {
+  id: number;
+  username: string;
+  password_hash: string;
+  session_version: number;
+  created_at: string;
+  updated_at: string;
 }
 
 interface RateState {
@@ -39,6 +64,10 @@ function safeEqual(left: string, right: string) {
     leftBuffer.length === rightBuffer.length &&
     timingSafeEqual(leftBuffer, rightBuffer)
   );
+}
+
+export function normalizeAdminUsername(username: string) {
+  return usernameSchema.parse(username);
 }
 
 function cookies(request: Request) {
@@ -104,7 +133,9 @@ function readSession(request: Request, secret: string | undefined) {
       Buffer.from(encodedPayload, "base64url").toString("utf8"),
     ) as SessionPayload;
     if (
-      payload.version !== 1 ||
+      payload.version !== 2 ||
+      payload.userId !== 1 ||
+      !Number.isInteger(payload.sessionVersion) ||
       !payload.csrfToken ||
       !Number.isFinite(payload.expiresAt) ||
       payload.expiresAt <= Date.now()
@@ -188,7 +219,66 @@ export function fixedWindowRateLimiter(
   };
 }
 
-export function createSecurity(config: AppConfig) {
+export function createSecurity(config: AppConfig, db: RadarDatabase) {
+  function account() {
+    return db
+      .prepare("SELECT * FROM admin_account WHERE id = 1")
+      .get() as AdminAccountRow | undefined;
+  }
+
+  function ensureAccount() {
+    let current = account();
+    if (!current && config.adminPasswordHash) {
+      const createdAt = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO admin_account (
+           id, username, password_hash, session_version, created_at, updated_at
+         ) VALUES (1, ?, ?, 1, ?, ?)`,
+      ).run(
+        normalizeAdminUsername(config.adminUsername),
+        config.adminPasswordHash,
+        createdAt,
+        createdAt,
+      );
+      current = account();
+    }
+    if (config.authRequired && !current) {
+      throw new Error(
+        "尚未创建管理员账号，请先配置 ADMIN_PASSWORD_HASH 或运行 npm run auth:reset",
+      );
+    }
+    if (config.authRequired && !config.sessionSecret) {
+      throw new Error("启用账号登录时必须配置 SESSION_SECRET");
+    }
+    return current;
+  }
+
+  ensureAccount();
+
+  function authenticatedSession(request: Request) {
+    const payload = readSession(request, config.sessionSecret);
+    if (!payload) return null;
+    const current = account();
+    if (
+      !current ||
+      current.id !== payload.userId ||
+      current.session_version !== payload.sessionVersion
+    ) {
+      return null;
+    }
+    return { payload, account: current };
+  }
+
+  function newSessionPayload(current: AdminAccountRow): SessionPayload {
+    return {
+      version: 2,
+      userId: current.id,
+      sessionVersion: current.session_version,
+      expiresAt: Date.now() + config.sessionTtlHours * 60 * 60 * 1_000,
+      csrfToken: randomBytes(24).toString("base64url"),
+    };
+  }
+
   const loginRateLimiter = fixedWindowRateLimiter(
     config.loginRateLimitPer15Minutes,
     15 * 60 * 1_000,
@@ -209,12 +299,13 @@ export function createSecurity(config: AppConfig) {
       });
       return;
     }
-    const session = readSession(request, config.sessionSecret);
+    const session = authenticatedSession(request);
     response.json({
       authenticated: Boolean(session),
       authRequired: true,
-      csrfToken: session?.csrfToken ?? null,
-      expiresAt: session?.expiresAt ?? null,
+      csrfToken: session?.payload.csrfToken ?? null,
+      expiresAt: session?.payload.expiresAt ?? null,
+      username: session?.account.username ?? null,
     });
   }
 
@@ -223,29 +314,28 @@ export function createSecurity(config: AppConfig) {
       response.json({ authenticated: true, authRequired: false, csrfToken: null });
       return;
     }
-    const { password } = passwordSchema.parse(request.body);
-    const valid =
-      Boolean(config.adminPasswordHash) &&
-      (await verifyPassword(password, config.adminPasswordHash!));
+    const { username, password } = loginSchema.parse(request.body);
+    const current = account();
+    const passwordValid = current
+      ? await verifyPassword(password, current.password_hash)
+      : false;
+    const valid = current?.username.toLowerCase() === username && passwordValid;
     if (!valid) {
       logEvent("warn", "login_failed", {
         requestId: response.locals.requestId,
         clientIp: request.ip,
       });
-      response.status(401).json({ error: "密码不正确" });
+      response.status(401).json({ error: "账号或密码不正确" });
       return;
     }
-    const payload: SessionPayload = {
-      version: 1,
-      expiresAt: Date.now() + config.sessionTtlHours * 60 * 60 * 1_000,
-      csrfToken: randomBytes(24).toString("base64url"),
-    };
+    const payload = newSessionPayload(current!);
     setSessionCookies(response, config, payload);
     response.json({
       authenticated: true,
       authRequired: true,
       csrfToken: payload.csrfToken,
       expiresAt: payload.expiresAt,
+      username: current!.username,
     });
   }
 
@@ -258,12 +348,13 @@ export function createSecurity(config: AppConfig) {
       next();
       return;
     }
-    const session = readSession(request, config.sessionSecret);
+    const session = authenticatedSession(request);
     if (!session) {
       response.status(401).json({ error: "请先登录" });
       return;
     }
-    response.locals.session = session;
+    response.locals.session = session.payload;
+    response.locals.account = session.account;
     next();
   }
 
@@ -295,12 +386,65 @@ export function createSecurity(config: AppConfig) {
     response.json({ authenticated: false, authRequired: config.authRequired });
   }
 
+  function accountResponse(_request: Request, response: Response) {
+    const current = account();
+    const configured = config.authRequired && Boolean(current);
+    response.json({
+      configured,
+      username: configured ? current!.username : null,
+      updatedAt: configured ? current!.updated_at : null,
+    });
+  }
+
+  async function updateAccount(request: Request, response: Response) {
+    const current = response.locals.account as AdminAccountRow | undefined;
+    if (!current) {
+      response.status(409).json({ error: "账号登录尚未启用" });
+      return;
+    }
+    const input = accountUpdateSchema.parse(request.body);
+    if (!(await verifyPassword(input.currentPassword, current.password_hash))) {
+      response.status(400).json({ error: "当前密码不正确" });
+      return;
+    }
+    const changedUsername = input.username !== current.username.toLowerCase();
+    if (!changedUsername && !input.newPassword) {
+      response.status(400).json({ error: "账号或密码没有变化" });
+      return;
+    }
+    const passwordHash = input.newPassword
+      ? await hashPassword(input.newPassword)
+      : current.password_hash;
+    const updatedAt = new Date().toISOString();
+    db.prepare(
+      `UPDATE admin_account
+       SET username = ?, password_hash = ?,
+           session_version = session_version + 1, updated_at = ?
+       WHERE id = 1`,
+    ).run(input.username, passwordHash, updatedAt);
+    const updated = account()!;
+    const payload = newSessionPayload(updated);
+    setSessionCookies(response, config, payload);
+    logEvent("info", "admin_account_updated", {
+      requestId: response.locals.requestId,
+      usernameChanged: changedUsername,
+      passwordChanged: Boolean(input.newPassword),
+    });
+    response.json({
+      configured: true,
+      username: updated.username,
+      updatedAt: updated.updated_at,
+    });
+  }
+
   return {
     loginRateLimiter,
     requestRateLimiter,
     sessionResponse,
     login,
     logout,
+    accountResponse,
+    updateAccount,
     requireAuthentication,
     requireCsrf,
   };

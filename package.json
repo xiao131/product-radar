@@ -25,6 +25,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "auth:hash": "tsx server/hash-password.ts",
+    "auth:reset": "tsx server/reset-admin.ts",
     "backup:restore": "tsx server/restore-backup.ts",
     "research:batch": "tsx server/batch-research.ts",
     "seed": "tsx server/seed.ts",
