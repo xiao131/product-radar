@@ -105,8 +105,31 @@ describe("production persistence", () => {
     const products = database
       .prepare("SELECT COUNT(*) AS count FROM products")
       .get() as { count: number };
+    const opportunityColumns = database
+      .prepare("PRAGMA table_info(opportunities)")
+      .all() as Array<{ name: string; dflt_value: string | null }>;
+    const productIndexes = database
+      .prepare("PRAGMA index_list(products)")
+      .all() as Array<{ name: string; unique: number }>;
     expect(migration.version).toBe(latestSchemaVersion());
     expect(products.count).toBe(0);
+    expect(opportunityColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "workflow_status",
+          dflt_value: "'UNDECIDED'",
+        }),
+        expect.objectContaining({ name: "workflow_updated_at" }),
+      ]),
+    );
+    expect(productIndexes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "idx_product_source_opportunity",
+          unique: 1,
+        }),
+      ]),
+    );
 
     const config = createTestConfig({
       databasePath,

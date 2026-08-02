@@ -1,10 +1,11 @@
-import { ExternalLink, Pencil, Plus } from "lucide-react";
+import { ExternalLink, Pencil, Plus, Radar } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Product } from "../../shared/types";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, Modal, PlatformBadge } from "../components";
 import { ProductForm } from "../forms";
 import { productStatusLabels, shortDate } from "../format";
+import { useNavigate } from "../router";
 
 export function ProductsPage() {
   const [products, setProducts] = useState<Product[] | null>(null);
@@ -12,6 +13,7 @@ export function ProductsPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [feedback, setFeedback] = useState("");
+  const navigate = useNavigate();
 
   function load() {
     setError("");
@@ -59,6 +61,14 @@ export function ProductsPage() {
               <div className="product-cell">
                 <strong>{product.name}</strong>
                 <span>{product.description || "尚未填写产品说明"}</span>
+                {product.sourceOpportunityId && (
+                  <button
+                    className="text-button product-source"
+                    onClick={() => navigate(`/radar/${product.sourceOpportunityId}`)}
+                  >
+                    <Radar size={13} /> 来自候选
+                  </button>
+                )}
               </div>
               <div><PlatformBadge platform={product.platform} /></div>
               <div><span className={`product-status product-status--${product.status.toLowerCase()}`}>

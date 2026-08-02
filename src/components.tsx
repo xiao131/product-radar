@@ -12,8 +12,13 @@ import type {
   Platform,
   ResearchStatus,
   Verdict,
+  WorkflowStatus,
 } from "../shared/types";
-import { platformLabels, verdictLabels } from "./format";
+import {
+  platformLabels,
+  verdictLabels,
+  workflowStatusLabels,
+} from "./format";
 
 export function Score({
   value,
@@ -74,6 +79,14 @@ export function ResearchStatusBadge({ status }: { status: ResearchStatus }) {
   return (
     <span className={`research-status research-status--${status.toLowerCase()}`}>
       {researchStatusLabels[status]}
+    </span>
+  );
+}
+
+export function WorkflowStatusBadge({ status }: { status: WorkflowStatus }) {
+  return (
+    <span className={`workflow-status workflow-status--${status.toLowerCase()}`}>
+      {workflowStatusLabels[status]}
     </span>
   );
 }
@@ -316,6 +329,19 @@ export function OpportunityRow({
       </td>
       <td className="mono muted">
         {item.decisionCurrent ? `${item.confidence}%` : "—"}
+      </td>
+      <td>
+        <button className="button button--secondary button--small" onClick={onClick}>
+          {item.workflowStatus !== "UNDECIDED"
+            ? "查看执行"
+            : item.researchStatus === "RUNNING"
+              ? "查看进度"
+              : item.researchStatus === "FAILED"
+                ? "重试调研"
+                : item.researchStatus === "UNRESEARCHED"
+                  ? "去调研"
+                  : "处理决策"}
+        </button>
       </td>
     </tr>
   );

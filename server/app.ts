@@ -53,6 +53,7 @@ import {
   createSignalSchema,
   linkSignalSchema,
   opportunityUpdateSchema,
+  opportunityWorkflowUpdateSchema,
   updateProductSchema,
 } from "../shared/schemas.js";
 import type {
@@ -714,6 +715,12 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       );
     const detail: OpportunityDetail = {
       opportunity: mapOpportunity(opportunityRow),
+      linkedProduct: (() => {
+        const row = db
+          .prepare("SELECT * FROM products WHERE source_opportunity_id = ?")
+          .get(request.params.id) as Record<string, unknown> | undefined;
+        return row ? mapProduct(row) : null;
+      })(),
       reportEvidence: reportEvidenceFromSnapshot(
         request.params.id,
         reports[0],
@@ -771,6 +778,103 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       return;
     }
     response.json(mapOpportunity(row));
+  });
+
+  app.patch("/api/opportunities/:id/workflow", (request, response) => {
+    const input = opportunityWorkflowUpdateSchema.parse(request.body);
+    const opportunityRow = db
+      .prepare("SELECT * FROM opportunities WHERE id = ?")
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    if (!opportunityRow) {
+      response.status(404).json({ error: "找不到这个候选产品" });
+      return;
+    }
+    const report = db
+      .prepare("SELECT 1 FROM research_reports WHERE opportunity_id = ? LIMIT 1")
+      .get(request.params.id);
+    if (!report) {
+      response.status(409).json({ error: "候选完成首次调研后才能更新人工决策" });
+      return;
+    }
+    const changedAt = now();
+    db.prepare(
+      `UPDATE opportunities
+       SET workflow_status = ?, workflow_updated_at = ?, updated_at = ?
+       WHERE id = ?`,
+    ).run(input.workflowStatus, changedAt, changedAt, request.params.id);
+    const row = db
+      .prepare("SELECT * FROM opportunities WHERE id = ?")
+      .get(request.params.id) as Record<string, unknown>;
+    response.json(mapOpportunity(row));
+  });
+
+  app.post("/api/opportunities/:id/promote", (request, response) => {
+    const opportunityRow = db
+      .prepare("SELECT * FROM opportunities WHERE id = ?")
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    if (!opportunityRow) {
+      response.status(404).json({ error: "找不到这个候选产品" });
+      return;
+    }
+    const latestReport = db
+      .prepare(
+        `SELECT recommended_action
+         FROM research_reports
+         WHERE opportunity_id = ?
+         ORDER BY version DESC
+         LIMIT 1`,
+      )
+      .get(request.params.id) as { recommended_action: string } | undefined;
+    if (!latestReport) {
+      response.status(409).json({ error: "候选完成首次调研后才能转成产品" });
+      return;
+    }
+    const existingRow = db
+      .prepare("SELECT * FROM products WHERE source_opportunity_id = ?")
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    if (existingRow) {
+      const changedAt = now();
+      db.prepare(
+        `UPDATE opportunities
+         SET workflow_status = 'APPROVED', workflow_updated_at = ?, updated_at = ?
+         WHERE id = ? AND workflow_status != 'APPROVED'`,
+      ).run(changedAt, changedAt, request.params.id);
+      response.json({ product: mapProduct(existingRow), created: false });
+      return;
+    }
+
+    const opportunity = mapOpportunity(opportunityRow);
+    const createdAt = now();
+    const product: Product = {
+      id: randomUUID(),
+      name: opportunity.name,
+      platform: opportunity.recommendedPlatform,
+      status: "BUILDING",
+      url: null,
+      description: opportunity.oneLiner,
+      currentFocus: latestReport.recommended_action,
+      sourceOpportunityId: opportunity.id,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO products (
+          id, name, platform, status, url, description, current_focus,
+          source_opportunity_id, created_at, updated_at
+        ) VALUES (
+          @id, @name, @platform, @status, @url, @description, @currentFocus,
+          @sourceOpportunityId, @createdAt, @updatedAt
+        )
+      `).run(product);
+      markPortfolioDependentResearchDue(db, createdAt);
+      db.prepare(
+        `UPDATE opportunities
+         SET workflow_status = 'APPROVED', workflow_updated_at = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(createdAt, createdAt, opportunity.id);
+    })();
+    response.status(201).json({ product, created: true });
   });
 
   app.post(
@@ -1084,6 +1188,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       url: input.url || null,
       description: input.description,
       currentFocus: input.currentFocus,
+      sourceOpportunityId: null,
       createdAt: now(),
       updatedAt: now(),
     };

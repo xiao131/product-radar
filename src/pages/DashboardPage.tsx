@@ -87,10 +87,14 @@ export function DashboardPage() {
               <b>{data.stats.liveProducts}</b>
               <span>已上线产品</span>
             </div>
-            <div>
+            <button
+              type="button"
+              onClick={() => navigate("/radar?researchStatus=UNRESEARCHED")}
+              aria-label={`查看 ${data.stats.unresearched} 个待调研候选`}
+            >
               <b>{data.stats.unresearched}</b>
               <span>待调研候选</span>
-            </div>
+            </button>
           </div>
         </div>
       </section>

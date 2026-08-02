@@ -19,6 +19,10 @@ export function mapOpportunity(row: Row): Opportunity {
     recommendedPlatform: row.recommended_platform as Opportunity["recommendedPlatform"],
     verdict: row.verdict as Opportunity["verdict"],
     researchStatus,
+    workflowStatus: (row.workflow_status ?? "UNDECIDED") as Opportunity["workflowStatus"],
+    workflowUpdatedAt: row.workflow_updated_at
+      ? String(row.workflow_updated_at)
+      : null,
     decisionCurrent: researchStatus === "READY" && !row.stale_since,
     score: Number(row.score),
     scoreDelta: Number(row.score_delta),
@@ -51,6 +55,9 @@ export function mapProduct(row: Row): Product {
     url: row.url ? String(row.url) : null,
     description: String(row.description),
     currentFocus: String(row.current_focus),
+    sourceOpportunityId: row.source_opportunity_id
+      ? String(row.source_opportunity_id)
+      : null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };

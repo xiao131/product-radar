@@ -100,6 +100,107 @@ describe("Product Radar API", () => {
     expect(response.body).toHaveLength(4);
   });
 
+  it("updates manual workflow state without changing the AI decision", async () => {
+    const candidate = (
+      await request(app).get("/api/opportunities").expect(200)
+    ).body.items[0];
+    const before = await request(app)
+      .get(`/api/opportunities/${candidate.id}`)
+      .expect(200);
+
+    const updated = await request(app)
+      .patch(`/api/opportunities/${candidate.id}/workflow`)
+      .send({ workflowStatus: "VALIDATING" })
+      .expect(200);
+
+    expect(updated.body).toMatchObject({
+      id: candidate.id,
+      workflowStatus: "VALIDATING",
+      workflowUpdatedAt: expect.any(String),
+      verdict: before.body.opportunity.verdict,
+      score: before.body.opportunity.score,
+      researchStatus: before.body.opportunity.researchStatus,
+      staleSince: before.body.opportunity.staleSince,
+    });
+    const after = await request(app)
+      .get(`/api/opportunities/${candidate.id}`)
+      .expect(200);
+    expect(after.body.reports).toHaveLength(before.body.reports.length);
+  });
+
+  it("rejects manual workflow changes before the first research report", async () => {
+    const signal = await request(app)
+      .post("/api/signals")
+      .send({
+        sourceType: "IDEA",
+        title: "Unresearched workflow candidate",
+        content: "This candidate has not completed its first research run.",
+      })
+      .expect(201);
+    const candidate = await request(app)
+      .post(`/api/signals/${signal.body.id}/process`)
+      .expect(201);
+
+    const response = await request(app)
+      .patch(`/api/opportunities/${candidate.body.id}/workflow`)
+      .send({ workflowStatus: "WATCHING" })
+      .expect(409);
+    expect(response.body.error).toContain("首次调研");
+
+    const promotion = await request(app)
+      .post(`/api/opportunities/${candidate.body.id}/promote`)
+      .expect(409);
+    expect(promotion.body.error).toContain("首次调研");
+    const products = await request(app).get("/api/products").expect(200);
+    expect(products.body).toHaveLength(3);
+  });
+
+  it("promotes a researched candidate into one linked product idempotently", async () => {
+    const candidate = (
+      await request(app).get("/api/opportunities").expect(200)
+    ).body.items[0];
+    const detailBefore = await request(app)
+      .get(`/api/opportunities/${candidate.id}`)
+      .expect(200);
+    const report = detailBefore.body.reports[0];
+
+    const created = await request(app)
+      .post(`/api/opportunities/${candidate.id}/promote`)
+      .expect(201);
+    expect(created.body).toMatchObject({
+      created: true,
+      product: {
+        name: candidate.name,
+        platform: candidate.recommendedPlatform,
+        status: "BUILDING",
+        description: candidate.oneLiner,
+        currentFocus: report.recommendedAction,
+        sourceOpportunityId: candidate.id,
+      },
+    });
+
+    const repeated = await request(app)
+      .post(`/api/opportunities/${candidate.id}/promote`)
+      .expect(200);
+    expect(repeated.body).toMatchObject({
+      created: false,
+      product: { id: created.body.product.id },
+    });
+
+    const products = await request(app).get("/api/products").expect(200);
+    expect(products.body).toHaveLength(4);
+    const detailAfter = await request(app)
+      .get(`/api/opportunities/${candidate.id}`)
+      .expect(200);
+    expect(detailAfter.body.linkedProduct.id).toBe(created.body.product.id);
+    expect(detailAfter.body.opportunity).toMatchObject({
+      workflowStatus: "APPROVED",
+      researchStatus: "UNRESEARCHED",
+      decisionCurrent: false,
+    });
+    expect(detailAfter.body.reports).toHaveLength(detailBefore.body.reports.length);
+  });
+
   it("invalidates portfolio-dependent decisions without erasing research history", async () => {
     const before = await request(app).get("/api/dashboard").expect(200);
     const primary = before.body.topOpportunities[0];

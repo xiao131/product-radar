@@ -1,4 +1,9 @@
-import type { Platform, SignalSource, Verdict } from "../shared/types";
+import type {
+  Platform,
+  SignalSource,
+  Verdict,
+  WorkflowStatus,
+} from "../shared/types";
 
 export const verdictLabels: Record<Verdict, string> = {
   BUILD_NOW: "现在开发",
@@ -33,6 +38,14 @@ export const productStatusLabels = {
   PAUSED: "暂停",
   ARCHIVED: "归档",
 } as const;
+
+export const workflowStatusLabels: Record<WorkflowStatus, string> = {
+  UNDECIDED: "待决定",
+  VALIDATING: "验证中",
+  APPROVED: "已批准开发",
+  WATCHING: "观察中",
+  REJECTED: "已放弃",
+};
 
 export function shortDate(value: string | null) {
   if (!value) return "尚未调研";

@@ -1,5 +1,11 @@
 export type Platform = "WEB" | "IOS" | "WEB_AND_IOS";
 export type Verdict = "BUILD_NOW" | "VALIDATE_FIRST" | "WATCH" | "SKIP";
+export type WorkflowStatus =
+  | "UNDECIDED"
+  | "VALIDATING"
+  | "APPROVED"
+  | "WATCHING"
+  | "REJECTED";
 export type ResearchStatus = "UNRESEARCHED" | "READY" | "RUNNING" | "FAILED";
 export type SignalStatus = "NEW" | "PROCESSED" | "ARCHIVED";
 export type SignalSource =
@@ -55,6 +61,8 @@ export interface Opportunity {
   recommendedPlatform: Platform;
   verdict: Verdict;
   researchStatus: ResearchStatus;
+  workflowStatus: WorkflowStatus;
+  workflowUpdatedAt: string | null;
   decisionCurrent: boolean;
   score: number;
   scoreDelta: number;
@@ -175,6 +183,7 @@ export interface BatchResearchResult {
 
 export interface OpportunityDetail {
   opportunity: Opportunity;
+  linkedProduct: Product | null;
   reportEvidence: EvidenceItem[];
   evidence: EvidenceItem[];
   reports: ResearchReport[];
@@ -206,8 +215,14 @@ export interface Product {
   url: string | null;
   description: string;
   currentFocus: string;
+  sourceOpportunityId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OpportunityPromotionResponse {
+  product: Product;
+  created: boolean;
 }
 
 export interface Signal {

@@ -41,6 +41,7 @@ export function RadarPage() {
   const query = routeParams.get("query") ?? "";
   const platform = routeParams.get("platform") ?? "";
   const verdict = routeParams.get("verdict") ?? "";
+  const researchStatus = routeParams.get("researchStatus") ?? "";
   const requestedSort = routeParams.get("sortBy") ?? "score";
   const sortBy = ["score", "scoreDelta", "confidence", "updatedAt", "name"].includes(
     requestedSort,
@@ -78,8 +79,9 @@ export function RadarPage() {
     if (query.trim()) params.set("query", query.trim());
     if (platform) params.set("platform", platform);
     if (verdict) params.set("verdict", verdict);
+    if (researchStatus) params.set("researchStatus", researchStatus);
     return `/api/opportunities?${params}`;
-  }, [page, platform, query, sortBy, verdict]);
+  }, [page, platform, query, researchStatus, sortBy, verdict]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -194,6 +196,19 @@ export function RadarPage() {
             <option value="SKIP">暂不开发</option>
           </select>
           <select
+            value={researchStatus}
+            onChange={(event) => {
+              updateRoute({ researchStatus: event.target.value, page: null });
+            }}
+            aria-label="按调研状态筛选"
+          >
+            <option value="">全部调研状态</option>
+            <option value="UNRESEARCHED">待调研</option>
+            <option value="RUNNING">调研中</option>
+            <option value="READY">结论有效</option>
+            <option value="FAILED">调研失败</option>
+          </select>
+          <select
             value={sortBy}
             onChange={(event) => {
               updateRoute({ sortBy: event.target.value === "score" ? null : event.target.value, page: null });
@@ -233,7 +248,7 @@ export function RadarPage() {
             <span className="eyebrow">ALL OPPORTUNITIES</span>
             <h2>{result.total} 个候选产品</h2>
           </div>
-          <span className="table-hint">通过候选名称进入完整证据档案</span>
+          <span className="table-hint">通过“下一步”进入调研或执行处理</span>
         </header>
         {error ? (
           <ErrorState message={error} />
@@ -251,6 +266,7 @@ export function RadarPage() {
                     <th>平台</th>
                     <th>变化</th>
                     <th>置信度</th>
+                    <th>下一步</th>
                   </tr>
                 </thead>
                 <tbody>

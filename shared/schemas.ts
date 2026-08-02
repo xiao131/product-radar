@@ -2,6 +2,13 @@ import { z } from "zod";
 
 export const platformSchema = z.enum(["WEB", "IOS", "WEB_AND_IOS"]);
 export const verdictSchema = z.enum(["BUILD_NOW", "VALIDATE_FIRST", "WATCH", "SKIP"]);
+export const workflowStatusSchema = z.enum([
+  "UNDECIDED",
+  "VALIDATING",
+  "APPROVED",
+  "WATCHING",
+  "REJECTED",
+]);
 export const httpUrlSchema = z
   .string()
   .trim()
@@ -57,6 +64,10 @@ export const opportunityUpdateSchema = z.object({
   oneLiner: z.string().trim().min(3).max(500).optional(),
   targetUser: z.string().trim().min(2).max(300).optional(),
   recommendedPlatform: platformSchema.optional(),
+});
+
+export const opportunityWorkflowUpdateSchema = z.object({
+  workflowStatus: workflowStatusSchema,
 });
 
 export const linkSignalSchema = z.object({

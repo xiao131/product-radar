@@ -321,6 +321,27 @@ const migrations: Migration[] = [
       repairHistoricalJobOutcomes(db);
     },
   },
+  {
+    version: 8,
+    name: "candidate execution workflow",
+    up(db) {
+      db.exec(`
+        ALTER TABLE opportunities ADD COLUMN workflow_status TEXT NOT NULL
+          DEFAULT 'UNDECIDED'
+          CHECK (workflow_status IN ('UNDECIDED', 'VALIDATING', 'APPROVED', 'WATCHING', 'REJECTED'));
+        ALTER TABLE opportunities ADD COLUMN workflow_updated_at TEXT;
+
+        ALTER TABLE products ADD COLUMN source_opportunity_id TEXT
+          REFERENCES opportunities(id) ON DELETE SET NULL;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_product_source_opportunity
+          ON products(source_opportunity_id)
+          WHERE source_opportunity_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_opportunity_workflow
+          ON opportunities(workflow_status, workflow_updated_at DESC);
+      `);
+    },
+  },
 ];
 
 export function migrateDatabase(db: Database.Database) {

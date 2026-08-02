@@ -4,15 +4,20 @@ import {
   CheckCircle2,
   CircleAlert,
   ExternalLink,
+  LoaderCircle,
   Pencil,
+  PackagePlus,
   RefreshCw,
   ShieldAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type {
   DimensionScore,
+  Opportunity,
   OpportunityDetail,
+  OpportunityPromotionResponse,
   OpportunityResearchResponse,
+  WorkflowStatus,
 } from "../../shared/types";
 import { api, dataForSeoBudgetConfirmation } from "../api";
 import {
@@ -24,9 +29,10 @@ import {
   ResearchStatusBadge,
   Score,
   VerdictBadge,
+  WorkflowStatusBadge,
 } from "../components";
 import { OpportunityForm } from "../forms";
-import { shortDate } from "../format";
+import { shortDate, workflowStatusLabels } from "../format";
 import { useNavigate, usePath, useSearch } from "../router";
 import { useJobPolling } from "../use-job";
 
@@ -72,6 +78,10 @@ export function OpportunityDetailPage() {
   const [researchJobId, setResearchJobId] = useState<string | null>(null);
   const [limit, setLimit] = useState(20);
   const [editing, setEditing] = useState(false);
+  const [workflowSaving, setWorkflowSaving] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const { job: researchJob, error: researchJobError } = useJobPolling(researchJobId);
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -179,10 +189,67 @@ export function OpportunityDetailPage() {
     }
   }
 
+  async function updateWorkflow(
+    workflowStatus: WorkflowStatus,
+    message = `人工状态已更新为“${workflowStatusLabels[workflowStatus]}”。`,
+  ) {
+    if (!id) return;
+    setWorkflowSaving(true);
+    setActionError("");
+    setActionMessage("");
+    try {
+      const opportunity = await api<Opportunity>(
+        `/api/opportunities/${id}/workflow`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ workflowStatus }),
+        },
+      );
+      setDetail((current) => current ? { ...current, opportunity } : current);
+      setActionMessage(message);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "人工状态更新失败");
+    } finally {
+      setWorkflowSaving(false);
+    }
+  }
+
+  async function promoteToProduct() {
+    if (!id) return;
+    setPromoting(true);
+    setActionError("");
+    setActionMessage("");
+    try {
+      const result = await api<OpportunityPromotionResponse>(
+        `/api/opportunities/${id}/promote`,
+        { method: "POST" },
+      );
+      setDetail((current) => current ? { ...current, linkedProduct: result.product } : current);
+      setActionMessage(
+        result.created
+          ? "已转成“我的产品”，并保留与候选调研档案的来源关系。"
+          : "这个候选已经转成产品，没有重复创建。",
+      );
+      load();
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "转成产品失败");
+    } finally {
+      setPromoting(false);
+    }
+  }
+
   if (error) return <ErrorState message={error} retry={() => load()} />;
   if (!detail) return <LoadingState label="正在读取完整调研档案" />;
 
-  const { opportunity, evidence, reportEvidence, reports, signals, totals } = detail;
+  const {
+    opportunity,
+    linkedProduct,
+    evidence,
+    reportEvidence,
+    reports,
+    signals,
+    totals,
+  } = detail;
   const report = reports[0];
   const evidenceById = new Map(reportEvidence.map((item) => [item.id, item]));
   const from = new URLSearchParams(search).get("from");
@@ -193,12 +260,52 @@ export function OpportunityDetailPage() {
     (evidence.length < totals.evidence ||
       reports.length < totals.reports ||
       signals.length < totals.signals);
+  const primaryAction = opportunity.verdict === "BUILD_NOW"
+    ? { label: "转成我的产品", status: "APPROVED" as const }
+    : opportunity.verdict === "VALIDATE_FIRST"
+      ? { label: "开始验证", status: "VALIDATING" as const }
+      : opportunity.verdict === "WATCH"
+        ? { label: "加入观察", status: "WATCHING" as const }
+        : { label: "标记放弃", status: "REJECTED" as const };
+  const workflowBusy = workflowSaving || promoting;
+  const stageItems = [
+    { label: "候选", detail: "已进入雷达", state: "complete" },
+    {
+      label: "调研",
+      detail: report ? `报告 V${report.version}` : "等待首次调研",
+      state: report ? "complete" : "active",
+    },
+    {
+      label: "AI 决策",
+      detail: opportunity.decisionCurrent ? "结论有效" : report ? "等待重评" : "尚未形成",
+      state: opportunity.decisionCurrent ? "complete" : report ? "active" : "pending",
+    },
+    {
+      label: "人工执行",
+      detail: workflowStatusLabels[opportunity.workflowStatus],
+      state: opportunity.workflowStatus !== "UNDECIDED"
+        ? "complete"
+        : opportunity.decisionCurrent ? "active" : "pending",
+    },
+  ];
 
   return (
     <div className="detail-page">
       <button className="back-link" onClick={() => navigate(radarReturn)}>
         <ArrowLeft size={15} /> 返回雷达库
       </button>
+
+      <ol className="candidate-stages" aria-label="候选处理阶段">
+        {stageItems.map((item, index) => (
+          <li className={`candidate-stage candidate-stage--${item.state}`} key={item.label}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <div>
+              <strong>{item.label}</strong>
+              <small>{item.detail}</small>
+            </div>
+          </li>
+        ))}
+      </ol>
 
       <section className="detail-head">
         <div className="detail-head__title">
@@ -210,6 +317,9 @@ export function OpportunityDetailPage() {
             )}
             <PlatformBadge platform={opportunity.recommendedPlatform} />
             <span className="source-chip">{opportunity.sourceType}</span>
+            {opportunity.workflowStatus !== "UNDECIDED" && (
+              <WorkflowStatusBadge status={opportunity.workflowStatus} />
+            )}
           </div>
           <h2>{opportunity.name}</h2>
           <p>{opportunity.oneLiner}</p>
@@ -252,7 +362,11 @@ export function OpportunityDetailPage() {
             <header className="panel__header">
               <div>
                 <span className="eyebrow">FINAL JUDGMENT</span>
-                <h2>{opportunity.decisionCurrent ? "为什么这样判断" : "上一次如何判断"}</h2>
+                <h2>
+                  {report
+                    ? opportunity.decisionCurrent ? "为什么这样判断" : "上一次如何判断"
+                    : "尚未形成判断"}
+                </h2>
               </div>
               {report && <span className="version-chip">V{report.version} · {report.providerMode}</span>}
             </header>
@@ -447,6 +561,66 @@ export function OpportunityDetailPage() {
         </div>
 
         <aside className="detail-aside">
+          {report && (
+            <section className="action-card decision-action-card">
+              <span className="eyebrow">MY DECISION</span>
+              <h3>决定下一步怎么做</h3>
+              <div className="decision-source-row">
+                <span>AI 结论</span>
+                <VerdictBadge verdict={opportunity.verdict} />
+              </div>
+              <div className="decision-source-row">
+                <span>人工状态</span>
+                <WorkflowStatusBadge status={opportunity.workflowStatus} />
+              </div>
+              <label className="workflow-select">
+                <span>手动更新人工状态</span>
+                <select
+                  value={opportunity.workflowStatus}
+                  onChange={(event) => void updateWorkflow(event.target.value as WorkflowStatus)}
+                  disabled={workflowBusy}
+                >
+                  {Object.entries(workflowStatusLabels).map(([value, label]) => (
+                    <option value={value} key={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              {linkedProduct ? (
+                <button
+                  className="button button--orange button--full"
+                  onClick={() => navigate("/products")}
+                >
+                  <PackagePlus size={16} /> 打开关联产品
+                </button>
+              ) : opportunity.decisionCurrent ? (
+                <button
+                  className="button button--orange button--full"
+                  onClick={() => {
+                    if (primaryAction.status === "APPROVED") {
+                      void promoteToProduct();
+                    } else {
+                      void updateWorkflow(
+                        primaryAction.status,
+                        `已按 AI 建议进入“${workflowStatusLabels[primaryAction.status]}”。`,
+                      );
+                    }
+                  }}
+                  disabled={workflowBusy}
+                >
+                  {workflowBusy ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}
+                  {promoting ? "正在转成产品…" : workflowSaving ? "正在更新…" : primaryAction.label}
+                </button>
+              ) : (
+                <p className="decision-stale-note">AI 结论已过期，请先重新调研；人工状态仍可单独记录。</p>
+              )}
+              {actionError && <div className="form-error" role="alert">{actionError}</div>}
+              {actionMessage && <div className="form-success" role="status">{actionMessage}</div>}
+              <small>
+                AI 结论不会被手动覆盖；人工状态只记录你的执行决定。
+              </small>
+            </section>
+          )}
+
           <section className="action-card">
             <span className="eyebrow">RESEARCH CONTROL</span>
             <h3>{report ? "用新数据重新判断" : "完成首次调研"}</h3>

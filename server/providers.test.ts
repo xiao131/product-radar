@@ -18,6 +18,8 @@ function opportunity(id: string, name: string): Opportunity {
     recommendedPlatform: "WEB",
     verdict: "WATCH",
     researchStatus: "UNRESEARCHED",
+    workflowStatus: "UNDECIDED",
+    workflowUpdatedAt: null,
     decisionCurrent: false,
     score: 0,
     scoreDelta: 0,
