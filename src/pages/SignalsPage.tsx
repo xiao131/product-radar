@@ -11,8 +11,8 @@ import { type ChangeEvent, useEffect, useState } from "react";
 import type {
   Opportunity,
   OpportunityOption,
-  Paginated,
   Signal,
+  SignalPage,
 } from "../../shared/types";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, Modal } from "../components";
@@ -35,7 +35,7 @@ function visibleMetricEntries(metrics: Record<string, unknown> | undefined) {
 }
 
 export function SignalsPage() {
-  const [signals, setSignals] = useState<Paginated<Signal> | null>(null);
+  const [signals, setSignals] = useState<SignalPage | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -53,12 +53,23 @@ export function SignalsPage() {
 
   function load() {
     setError("");
-    api<Paginated<Signal>>(`/api/signals?page=${page}&pageSize=20`)
+    api<SignalPage>(`/api/signals?page=${page}&pageSize=20`)
       .then(setSignals)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "读取失败"));
   }
 
-  useEffect(load, [page]);
+  useEffect(() => {
+    load();
+    const refresh = () => {
+      if (!document.hidden) load();
+    };
+    const timer = window.setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [page]);
 
   async function processSignal(signal: Signal) {
     setProcessing(signal.id);
@@ -169,6 +180,21 @@ export function SignalsPage() {
       <p className="csv-hint">
         CSV 支持列：<code>title, content, source_type, source_url, tags</code>，tags 用分号分隔。
       </p>
+      <section className="signal-activity" aria-live="polite">
+        <span><strong>{signals.total}</strong> 条原始证据</span>
+        <span>
+          最近一轮采集 <strong>{signals.activity.collectedSignals}</strong> 条：
+          新增 <strong>{signals.activity.insertedSignals}</strong>，
+          复用/更新 <strong>{signals.activity.reusedSignals}</strong>
+        </span>
+        <span><strong>{signals.activity.waitingAi}</strong> 条等待 AI 筛选</span>
+        <span>
+          最近更新 {signals.activity.latestUpdatedAt
+            ? shortDate(signals.activity.latestUpdatedAt)
+            : "暂无"}
+        </span>
+        <small>页面每 30 秒自动刷新</small>
+      </section>
       {actionError && <div className="form-error standalone-error" role="alert">{actionError}</div>}
       {actionMessage && <div className="form-success standalone-error" role="status">{actionMessage}</div>}
 
@@ -190,7 +216,10 @@ export function SignalsPage() {
                     已合并 {signal.duplicateCount} 条
                   </small>
                 )}
-                <small>{shortDate(signal.createdAt)}</small>
+                <small>首次采集 {shortDate(signal.createdAt)}</small>
+                {signal.updatedAt !== signal.createdAt && (
+                  <small>最近更新 {shortDate(signal.updatedAt)}</small>
+                )}
               </div>
               <div className="signal-card__body">
                 <div>

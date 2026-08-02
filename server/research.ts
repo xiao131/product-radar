@@ -11,6 +11,7 @@ import type { ZodType } from "zod";
 import {
   createResearchAiModel,
   createResearchAiProviderOptions,
+  DEEPSEEK_MAX_OUTPUT_TOKENS,
 } from "./ai.js";
 import { isAiConfigured, type AppConfig } from "./config.js";
 import type { RadarDatabase } from "./db.js";
@@ -52,10 +53,10 @@ export const RESEARCH_STAGE_MAX_OUTPUT_TOKENS = {
 } as const;
 
 export const DEEPSEEK_RESEARCH_STAGE_MAX_OUTPUT_TOKENS = {
-  researcher: 8_192,
-  debate: 8_192,
-  judge: 16_384,
-  plan: 8_192,
+  researcher: DEEPSEEK_MAX_OUTPUT_TOKENS,
+  debate: DEEPSEEK_MAX_OUTPUT_TOKENS,
+  judge: DEEPSEEK_MAX_OUTPUT_TOKENS,
+  plan: DEEPSEEK_MAX_OUTPUT_TOKENS,
 } as const;
 
 export function unwrapResearchStreamError(

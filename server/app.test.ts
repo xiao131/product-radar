@@ -45,6 +45,44 @@ describe("Product Radar API", () => {
     expect(response.body.totalPages).toBeGreaterThanOrEqual(2);
   });
 
+  it("reports raw-evidence refresh activity alongside the paginated list", async () => {
+    const finishedAt = new Date().toISOString();
+    database
+      .prepare(
+        `INSERT INTO job_runs (
+           id, job_type, trigger_type, status, provider_mode,
+           result_json, started_at, finished_at
+         ) VALUES (?, 'DISCOVERY', 'scheduled', 'FAILED', 'REAL', ?, ?, ?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        JSON.stringify({
+          stage: "COLLECTED",
+          collectedSignals: 80,
+          insertedSignals: 0,
+          reusedSignals: 80,
+        }),
+        finishedAt,
+        finishedAt,
+      );
+
+    const response = await request(app)
+      .get("/api/signals")
+      .query({ page: 1, pageSize: 20 })
+      .expect(200);
+
+    expect(response.body.items.length).toBeGreaterThan(0);
+    expect(response.body.activity).toMatchObject({
+      latestUpdatedAt: expect.any(String),
+      waitingAi: expect.any(Number),
+      latestDiscoveryAt: finishedAt,
+      latestDiscoveryStatus: "FAILED",
+      collectedSignals: 80,
+      insertedSignals: 0,
+      reusedSignals: 80,
+    });
+  });
+
   it("adds a product to the managed portfolio", async () => {
     await request(app)
       .post("/api/products")

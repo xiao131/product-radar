@@ -3,6 +3,7 @@ import { createDatabase } from "./db.js";
 import {
   normalizeDiscoveryKey,
   normalizeDiscoveryConfidence,
+  discoveryStructuredRetryLimits,
   discoveryCollectionForToday,
   markSignalsAiReviewed,
   persistDiscoveredSignals,
@@ -39,6 +40,12 @@ const inputs: DiscoveredSignalInput[] = [
 ];
 
 describe("automatic discovery persistence", () => {
+  it("shrinks an empty structured-output batch without dropping below two signals", () => {
+    expect(discoveryStructuredRetryLimits(60)).toEqual([60, 30, 15]);
+    expect(discoveryStructuredRetryLimits(3)).toEqual([3, 2]);
+    expect(discoveryStructuredRetryLimits(2)).toEqual([2]);
+  });
+
   it("keeps batches small while reserving reviewed context", () => {
     const signal = (index: number, reviewed: boolean): Signal => ({
       id: crypto.randomUUID(),

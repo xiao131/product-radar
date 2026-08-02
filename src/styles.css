@@ -1802,6 +1802,29 @@ td {
   font-family: "IBM Plex Mono", monospace;
 }
 
+.signal-activity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  color: #626863;
+  font-size: 12px;
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+}
+
+.signal-activity strong {
+  color: var(--ink);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.signal-activity small {
+  margin-left: auto;
+  color: #858a86;
+}
+
 .signal-list {
   display: flex;
   flex-direction: column;

@@ -11,6 +11,9 @@ import { createGateway, type LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { AppConfig } from "./config.js";
 
+export const DEEPSEEK_CONTEXT_WINDOW_TOKENS = 1_000_000;
+export const DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000;
+
 export function createResearchAiModel(config: AppConfig): LanguageModel {
   if (config.aiProvider === "gateway") {
     return createGateway({ apiKey: config.aiGatewayApiKey })(config.aiModel);

@@ -416,7 +416,7 @@ export function SettingsPage() {
         </div>
         <ul>
           {form.aiProvider === "deepseek" && (
-            <li><Bot size={15} />思考模式开启，推理强度 max</li>
+            <li><Bot size={15} />思考模式开启，推理强度 max · 1M 上下文 / 384K 最大输出</li>
           )}
           <li><CheckCircle2 size={15} />{form.discoveryAiSignalLimit} 条/批，最多 {form.discoveryAiMaxBatchesPerRun} 批</li>
           <li><ShieldCheck size={15} />API Key 仅加密保存，不会返回浏览器</li>

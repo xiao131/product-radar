@@ -205,8 +205,10 @@ DATAFORSEO_PASSWORD=...
 
 `AI_PROVIDER=deepseek` 使用 DeepSeek 官方 Chat Completions 协议，请求地址为
 `https://api.deepseek.com/chat/completions`。项目会明确开启思考模式，并固定发送最高
-推理强度 `reasoning_effort=max`。四个调研阶段采用流式响应，并为思考 Token 保留
-更充足的输出上限；结构化结果使用 DeepSeek 支持的 JSON Object 模式。
+推理强度 `reasoning_effort=max`。V4 Flash 原生使用 1M 上下文窗口，并按官方限制将
+单次最大输出设为 384K。自动发现和四个调研阶段均采用流式响应；结构化结果使用
+DeepSeek 支持的 JSON Object 模式。自动发现遇到空输出或无效 JSON 时，会把信号批次
+依次缩小为原批次的 1/2、1/4 后重试，已经购买的 DataForSEO 数据不会重复购买。
 
 如需改用 OpenAI，`AI_PROVIDER=openai` 使用 OpenAI Responses 协议。`OPENAI_BASE_URL` 是 API
 前缀，程序会在它后面请求 `/responses`；如果中转要求 `/v1/responses`，请把
@@ -375,6 +377,10 @@ npm run research:batch
 `SESSION_SECRET` 派生密钥进行 AES-256-GCM 加密，页面永远不会读回明文。运行中的
 任务使用启动时的配置快照，保存内容从下一次任务开始生效。服务器监听、登录、
 数据库路径、代理和备份目录等基础设施配置仍由环境变量管理。
+
+“原始证据”页面每 30 秒自动刷新，并展示最近一轮采集的总数、新增数、复用/更新
+数、等待 AI 筛选数和最近更新时间。证据总数没有增加并不代表任务未运行；去重命中
+时总数保持不变，但更新时间和复用/更新数量会变化。
 
 ## 使用方法
 

@@ -242,6 +242,18 @@ export interface Paginated<T> {
   totalPages: number;
 }
 
+export interface SignalPage extends Paginated<Signal> {
+  activity: {
+    latestUpdatedAt: string | null;
+    waitingAi: number;
+    latestDiscoveryAt: string | null;
+    latestDiscoveryStatus: string | null;
+    collectedSignals: number;
+    insertedSignals: number;
+    reusedSignals: number;
+  };
+}
+
 export interface OpportunityOption {
   id: string;
   name: string;

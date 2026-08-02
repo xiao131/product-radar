@@ -66,6 +66,7 @@ import type {
   Paginated,
   Product,
   Signal,
+  SignalPage,
 } from "../shared/types.js";
 
 const listQuerySchema = z.object({
@@ -1149,10 +1150,53 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         }
       ).count,
     );
-    const result: Paginated<Signal> = {
+    const activityRow = db
+      .prepare(
+        `SELECT
+           MAX(updated_at) AS latest_updated_at,
+           SUM(CASE
+             WHEN auto_collected = 1
+              AND opportunity_id IS NULL
+              AND ai_reviewed_at IS NULL
+             THEN 1 ELSE 0
+           END) AS waiting_ai
+         FROM signals`,
+      )
+      .get() as {
+        latest_updated_at: string | null;
+        waiting_ai: number | null;
+      };
+    const latestDiscovery = db
+      .prepare(
+        `SELECT status, result_json, started_at, finished_at
+         FROM job_runs
+         WHERE job_type = 'DISCOVERY'
+           AND status != 'SKIPPED'
+         ORDER BY started_at DESC
+         LIMIT 1`,
+      )
+      .get() as
+      | {
+          status: string;
+          result_json: string;
+          started_at: string;
+          finished_at: string | null;
+        }
+      | undefined;
+    let latestDiscoveryResult: Record<string, unknown> = {};
+    if (latestDiscovery?.result_json) {
+      try {
+        latestDiscoveryResult = JSON.parse(
+          latestDiscovery.result_json,
+        ) as Record<string, unknown>;
+      } catch {
+        latestDiscoveryResult = {};
+      }
+    }
+    const result: SignalPage = {
       items: rows(
         db,
-        "SELECT * FROM signals ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        "SELECT * FROM signals ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         mapSignal,
         query.pageSize,
         (query.page - 1) * query.pageSize,
@@ -1161,6 +1205,18 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       pageSize: query.pageSize,
       total,
       totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
+      activity: {
+        latestUpdatedAt: activityRow.latest_updated_at,
+        waitingAi: Number(activityRow.waiting_ai ?? 0),
+        latestDiscoveryAt:
+          latestDiscovery?.finished_at ?? latestDiscovery?.started_at ?? null,
+        latestDiscoveryStatus: latestDiscovery?.status ?? null,
+        collectedSignals: Number(
+          latestDiscoveryResult.collectedSignals ?? 0,
+        ),
+        insertedSignals: Number(latestDiscoveryResult.insertedSignals ?? 0),
+        reusedSignals: Number(latestDiscoveryResult.reusedSignals ?? 0),
+      },
     };
     response.json(result);
   });

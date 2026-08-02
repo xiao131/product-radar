@@ -228,7 +228,7 @@ describe("research AI provider", () => {
     expect(url).toBe("https://api.deepseek.com/chat/completions");
     expect(headers.get("authorization")).toBe("Bearer deepseek-test-key");
     expect(body.model).toBe("deepseek-v4-flash");
-    expect(body.max_tokens).toBe(8_192);
+    expect(body.max_tokens).toBe(384_000);
     expect(body.stream).toBe(true);
     expect(body.thinking).toEqual({ type: "enabled" });
     expect(body.reasoning_effort).toBe("max");

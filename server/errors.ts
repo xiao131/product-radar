@@ -12,6 +12,18 @@ export function readableAiError(error: unknown) {
     return "AI 中转在生成过程中断开，未返回可读错误；系统已保留原始信号，请减小每批信号数后重试。";
   }
   if (
+    name === "AI_NoOutputGeneratedError" ||
+    normalized.includes("no output generated")
+  ) {
+    return "AI 未返回最终 JSON；系统已自动缩小信号批次重试，原始证据和已购买数据均已保留。";
+  }
+  if (
+    name === "AI_NoObjectGeneratedError" ||
+    normalized.includes("no object generated")
+  ) {
+    return "AI 返回的 JSON 未通过结构校验；系统已自动缩小信号批次重试，原始证据和已购买数据均已保留。";
+  }
+  if (
     name === "AbortError" ||
     name === "TimeoutError" ||
     normalized.includes("timeout") ||
