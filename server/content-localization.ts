@@ -26,7 +26,10 @@ import { UsageLedger } from "./usage.js";
 
 const DEFAULT_BATCH_SIZES = {
   opportunities: 25,
-  reports: 10,
+  // A complete report contains nine dimensions plus evidence, risks and an
+  // MVP plan. Localize reports individually so a large structured response
+  // cannot exhaust the worker heap or discard other reports in the batch.
+  reports: 1,
   evidence: 40,
 } as const;
 
