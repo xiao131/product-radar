@@ -32,9 +32,12 @@ const DEFAULT_BATCH_SIZES = {
 
 const opportunityCopySchema = z.object({
   name: z.string().trim().min(1).max(140),
-  oneLiner: z.string().trim().min(1).max(500),
-  targetUser: z.string().trim().min(1).max(300),
-  changeSummary: z.string().trim().min(1).max(500),
+  // Historical research can contain long, evidence-rich copy. Rejecting an
+  // otherwise valid batch because one translation crosses a display-oriented
+  // length limit would discard every localization in that batch.
+  oneLiner: z.string().trim().min(1),
+  targetUser: z.string().trim().min(1),
+  changeSummary: z.string().trim().min(1),
 });
 
 const opportunityBatchSchema = z.object({
