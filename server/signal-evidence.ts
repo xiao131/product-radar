@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { RadarDatabase } from "./db.js";
 import { persistEvidence } from "./providers.js";
 import type { EvidenceItem, Signal } from "../shared/types.js";
+import { marketCode } from "../shared/localization.js";
 
 function normalizedContent(value: string) {
   return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -81,6 +82,8 @@ export function evidenceFromSignal(
           : 72,
     summary: `${signal.title}：${signal.content.replace(/\s+/g, " ").slice(0, 240)}`,
     rawExcerpt: signal.content,
+    originalLanguage: signal.originalLanguage ?? "und",
+    translations: {},
     collectedAt: signal.createdAt,
     freshnessDays: ageDays,
     fingerprint: signalFingerprint(signal),
@@ -94,13 +97,25 @@ export function linkSignalEvidence(
   opportunityId: string,
 ) {
   const opportunity = db
-    .prepare("SELECT id FROM opportunities WHERE id = ?")
-    .get(opportunityId) as { id: string } | undefined;
+    .prepare("SELECT id, target_markets_json FROM opportunities WHERE id = ?")
+    .get(opportunityId) as
+      | { id: string; target_markets_json: string }
+      | undefined;
   if (!opportunity) throw new Error("找不到要关联的候选产品");
   if (signal.opportunityId && signal.opportunityId !== opportunityId) {
     throw new Error("这条信号已经关联到另一个候选产品");
   }
   const linkedAt = new Date().toISOString();
+  let targetMarkets: string[] = [];
+  try {
+    targetMarkets = JSON.parse(opportunity.target_markets_json) as string[];
+  } catch {
+    targetMarkets = [];
+  }
+  const linkedMarket = marketCode(signal.market);
+  if (linkedMarket && !targetMarkets.includes(linkedMarket)) {
+    targetMarkets.push(linkedMarket);
+  }
   db.transaction(() => {
     persistEvidence(db, [evidenceFromSignal(signal, opportunityId)]);
     db.prepare(
@@ -113,8 +128,15 @@ export function linkSignalEvidence(
        SET research_status = CASE WHEN research_status = 'RUNNING' THEN 'RUNNING' ELSE 'UNRESEARCHED' END,
            stale_since = ?,
            change_summary = ?,
+           target_markets_json = ?,
            updated_at = ?
        WHERE id = ?`,
-    ).run(linkedAt, "收到新的用户信号，等待结合新证据重新判断。", linkedAt, opportunityId);
+    ).run(
+      linkedAt,
+      "收到新的用户信号，等待结合新证据重新判断。",
+      JSON.stringify(targetMarkets),
+      linkedAt,
+      opportunityId,
+    );
   })();
 }

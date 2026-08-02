@@ -45,6 +45,64 @@ describe("Product Radar API", () => {
     expect(response.body.totalPages).toBeGreaterThanOrEqual(2);
   });
 
+  it("sorts a market view by that market's assessment instead of the global score", async () => {
+    const candidates = database
+      .prepare("SELECT id FROM opportunities ORDER BY score DESC")
+      .all() as Array<{ id: string }>;
+    const update = database.prepare(
+      "UPDATE opportunities SET target_markets_json = ?, market_assessments_json = ? WHERE id = ?",
+    );
+    candidates.forEach((candidate, index) => {
+      const marketScore = index === candidates.length - 1 ? 99 : index + 1;
+      update.run(
+        JSON.stringify(["CN"]),
+        JSON.stringify([
+          {
+            marketCode: "CN",
+            score: marketScore,
+            confidence: 80,
+            verdict: marketScore === 99 ? "BUILD_NOW" : "WATCH",
+            summary: `CN score ${marketScore}`,
+            localizedSummary: {
+              "zh-CN": `中国市场评分 ${marketScore}`,
+              en: `China market score ${marketScore}`,
+            },
+          },
+        ]),
+        candidate.id,
+      );
+    });
+    database
+      .prepare(
+        "UPDATE opportunities SET market_assessments_json = '[]' WHERE id = ?",
+      )
+      .run(candidates[0].id);
+
+    const response = await request(app)
+      .get("/api/opportunities")
+      .query({
+        market: "CN",
+        pageSize: 100,
+        sortBy: "score",
+        sortDirection: "desc",
+      })
+      .expect(200);
+
+    expect(response.body.items[0]).toMatchObject({
+      id: candidates.at(-1)?.id,
+      selectedMarketAssessment: {
+        marketCode: "CN",
+        score: 99,
+        verdict: "BUILD_NOW",
+      },
+    });
+    expect(response.body.items.at(-1)).toMatchObject({
+      id: candidates[0].id,
+      selectedMarketCode: "CN",
+      selectedMarketAssessment: null,
+    });
+  });
+
   it("reports raw-evidence refresh activity alongside the paginated list", async () => {
     const finishedAt = new Date().toISOString();
     database

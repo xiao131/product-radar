@@ -79,9 +79,26 @@ describe("automatic discovery persistence", () => {
 
     const candidate = {
       discoveryKey: "Freelancers + receipt organization",
+      existingOpportunityId: null,
       name: "Receipt Flow",
       oneLiner: "Automatically organize receipts for tax preparation.",
       targetUser: "Freelancers who manually manage receipts",
+      originalLanguage: "en" as const,
+      targetMarkets: ["US"],
+      localizedContent: {
+        "zh-CN": {
+          name: "票据流",
+          oneLiner: "自动整理票据用于报税。",
+          targetUser: "手工管理票据的自由职业者",
+          changeSummary: "搜索增长与具体人工流程相互印证。",
+        },
+        en: {
+          name: "Receipt Flow",
+          oneLiner: "Automatically organize receipts for tax preparation.",
+          targetUser: "Freelancers who manually manage receipts",
+          changeSummary: "Search growth and a concrete manual workflow agree.",
+        },
+      },
       recommendedPlatform: "WEB_AND_IOS" as const,
       sourceSignalIds: firstSignals.signals.map((signal) => signal.id),
       confidence: 0.78,
@@ -195,9 +212,26 @@ describe("automatic discovery persistence", () => {
       [
         {
           discoveryKey: "unsupported",
+          existingOpportunityId: null,
           name: "Unsupported",
           oneLiner: "This candidate has only one valid signal.",
           targetUser: "Independent developers",
+          originalLanguage: "en",
+          targetMarkets: ["US"],
+          localizedContent: {
+            "zh-CN": {
+              name: "证据不足",
+              oneLiner: "这个候选只有一条有效信号。",
+              targetUser: "独立开发者",
+              changeSummary: "证据不足。",
+            },
+            en: {
+              name: "Unsupported",
+              oneLiner: "This candidate has only one valid signal.",
+              targetUser: "Independent developers",
+              changeSummary: "Not enough evidence.",
+            },
+          },
           recommendedPlatform: "WEB",
           sourceSignalIds: [persisted.signals[0].id, crypto.randomUUID()],
           confidence: 90,

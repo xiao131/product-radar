@@ -9,6 +9,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { RadarPage } from "./pages/RadarPage";
 import { useNavigate, usePath } from "./router";
 import { api } from "./api";
+import { useI18n } from "./i18n";
 
 const OpportunityDetailPage = lazy(() =>
   import("./pages/OpportunityDetailPage").then((module) => ({
@@ -54,6 +55,7 @@ function RoutedPage() {
 }
 
 export default function App() {
+  const { t } = useI18n();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [quickAddNotice, setQuickAddNotice] = useState<Signal | null>(null);
@@ -84,7 +86,7 @@ export default function App() {
     setSession({ authenticated: false, authRequired: true, csrfToken: null });
   }
 
-  if (!session) return <div className="app-loading">正在验证安全会话…</div>;
+  if (!session) return <div className="app-loading">{t("正在验证安全会话…", "Checking secure session…")}</div>;
   if (!session.authenticated) {
     return <LoginPage onAuthenticated={setSession} />;
   }
@@ -95,12 +97,12 @@ export default function App() {
       onLogout={() => void logout()}
       authRequired={session.authRequired}
     >
-      <Suspense fallback={<LoadingState label="正在加载页面" />}>
+      <Suspense fallback={<LoadingState label={t("正在加载页面", "Loading page")} />}>
         <RoutedPage />
       </Suspense>
       <Modal
-        title="捕捉一条新信号"
-        subtitle="先记录，再决定是否值得进入调研。"
+        title={t("捕捉一条新信号", "Capture a new signal")}
+        subtitle={t("先记录，再决定是否值得进入调研。", "Capture it first, then decide whether it deserves research.")}
         open={quickAddOpen}
         onClose={() => setQuickAddOpen(false)}
       >
@@ -116,7 +118,7 @@ export default function App() {
         {quickAddNotice && (
           <div className="toast" role="status">
             <div>
-              <strong>线索已保存</strong>
+              <strong>{t("线索已保存", "Signal saved")}</strong>
               <span>{quickAddNotice.title}</span>
             </div>
             <button
@@ -126,11 +128,11 @@ export default function App() {
                 navigate("/signals");
               }}
             >
-              查看证据
+              {t("查看证据", "View evidence")}
             </button>
             <button
               className="icon-button"
-              aria-label="关闭通知"
+              aria-label={t("关闭通知", "Close notification")}
               onClick={() => setQuickAddNotice(null)}
             >
               <X size={16} />

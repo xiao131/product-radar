@@ -19,6 +19,7 @@ import {
   mapSignal,
 } from "./mappers.js";
 import {
+  canBackfillBilingualContentWithoutCollection,
   isOpportunityResearchDue,
   ResearchInProgressError,
   researchOpportunity,
@@ -69,6 +70,11 @@ import type {
   Signal,
   SignalPage,
 } from "../shared/types.js";
+import {
+  detectContentLanguage,
+  languageFromMarket,
+  marketCode,
+} from "../shared/localization.js";
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -79,6 +85,8 @@ const listQuerySchema = z.object({
   sortDirection: z.enum(["asc", "desc"]).default("desc"),
   query: z.string().trim().max(120).optional(),
   platform: z.enum(["WEB", "IOS", "WEB_AND_IOS"]).optional(),
+  market: z.string().trim().regex(/^[A-Za-z0-9_-]{2,16}$/).optional(),
+  language: z.enum(["zh-CN", "en", "mixed", "und"]).optional(),
   verdict: z.enum(["BUILD_NOW", "VALIDATE_FIRST", "WATCH", "SKIP"]).optional(),
   researchStatus: z.enum(["UNRESEARCHED", "READY", "RUNNING", "FAILED"]).optional(),
 });
@@ -216,6 +224,20 @@ function reportEvidenceFromSnapshot(
         typeof snapshot?.rawExcerpt === "string"
           ? snapshot.rawExcerpt
           : current?.rawExcerpt ?? null,
+      originalLanguage: (snapshot?.originalLanguage ??
+        current?.originalLanguage ??
+        "und") as EvidenceItem["originalLanguage"],
+      translations: (() => {
+        const snapshotTranslations =
+          snapshot?.translations &&
+          typeof snapshot.translations === "object" &&
+          !Array.isArray(snapshot.translations)
+            ? (snapshot.translations as EvidenceItem["translations"])
+            : undefined;
+        return snapshotTranslations && Object.keys(snapshotTranslations).length
+          ? snapshotTranslations
+          : current?.translations ?? {};
+      })(),
       collectedAt: String(snapshot?.collectedAt ?? current?.collectedAt ?? report.createdAt),
       freshnessDays: Number(snapshot?.freshnessDays ?? current?.freshnessDays ?? 0),
       fingerprint:
@@ -299,6 +321,16 @@ export function configForManualOpportunityResearch(
     !force &&
     hasReport &&
     !isOpportunityResearchDue(opportunity, config.researchFreshnessDays)
+  ) {
+    return config;
+  }
+  if (
+    !force &&
+    canBackfillBilingualContentWithoutCollection(
+      db,
+      opportunity,
+      config.researchFreshnessDays,
+    )
   ) {
     return config;
   }
@@ -595,13 +627,23 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     const conditions: string[] = [];
     const values: unknown[] = [];
     if (query.query) {
-      conditions.push("(name LIKE ? OR one_liner LIKE ? OR target_user LIKE ?)");
+      conditions.push("(name LIKE ? OR one_liner LIKE ? OR target_user LIKE ? OR localized_content_json LIKE ?)");
       const search = `%${query.query}%`;
-      values.push(search, search, search);
+      values.push(search, search, search, search);
     }
     if (query.platform) {
       conditions.push("recommended_platform = ?");
       values.push(query.platform);
+    }
+    if (query.market) {
+      conditions.push(
+        "EXISTS (SELECT 1 FROM json_each(opportunities.target_markets_json) WHERE UPPER(value) = UPPER(?))",
+      );
+      values.push(query.market);
+    }
+    if (query.language) {
+      conditions.push("original_language = ?");
+      values.push(query.language);
     }
     if (query.verdict) {
       conditions.push("verdict = ?");
@@ -625,16 +667,49 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     )
       ? "CASE WHEN research_status = 'READY' AND stale_since IS NULL THEN 0 ELSE 1 END ASC,"
       : "";
-    const items = rows(
-      db,
-      `SELECT * FROM opportunities ${where}
-       ORDER BY ${currentDecisionOrder} ${sortColumns[query.sortBy]} ${query.sortDirection.toUpperCase()}, name ASC
-       LIMIT ? OFFSET ?`,
-      mapOpportunity,
-      ...values,
-      query.pageSize,
-      offset,
-    );
+    const marketSortColumns = {
+      score: "CAST(json_extract(market_assessment.value, '$.score') AS REAL)",
+      scoreDelta: "opportunities.score_delta",
+      updatedAt: "opportunities.updated_at",
+      name: "opportunities.name",
+      confidence: "CAST(json_extract(market_assessment.value, '$.confidence') AS REAL)",
+    } as const;
+    const items = query.market
+      ? (
+          db
+            .prepare(
+              `SELECT opportunities.*,
+                      market_assessment.value AS selected_market_assessment_json,
+                      ? AS selected_market_code
+               FROM opportunities
+               LEFT JOIN json_each(opportunities.market_assessments_json) AS market_assessment
+                 ON UPPER(json_extract(market_assessment.value, '$.marketCode')) = UPPER(?)
+               ${where}
+               GROUP BY opportunities.id
+               ORDER BY CASE WHEN market_assessment.value IS NULL THEN 1 ELSE 0 END ASC,
+                        ${currentDecisionOrder}
+                        ${marketSortColumns[query.sortBy]} ${query.sortDirection.toUpperCase()},
+                        opportunities.name ASC
+               LIMIT ? OFFSET ?`,
+            )
+            .all(
+              query.market,
+              query.market,
+              ...values,
+              query.pageSize,
+              offset,
+            ) as Record<string, unknown>[]
+        ).map(mapOpportunity)
+      : rows(
+          db,
+          `SELECT * FROM opportunities ${where}
+           ORDER BY ${currentDecisionOrder} ${sortColumns[query.sortBy]} ${query.sortDirection.toUpperCase()}, name ASC
+           LIMIT ? OFFSET ?`,
+          mapOpportunity,
+          ...values,
+          query.pageSize,
+          offset,
+        );
     const result: Paginated<Opportunity> = {
       items,
       page: query.page,
@@ -649,16 +724,16 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     const query = opportunityOptionsQuerySchema.parse(request.query);
     const values: unknown[] = [];
     const where = query.query
-      ? "WHERE name LIKE ? OR one_liner LIKE ?"
+      ? "WHERE name LIKE ? OR one_liner LIKE ? OR localized_content_json LIKE ?"
       : "";
     if (query.query) {
       const search = `%${query.query}%`;
-      values.push(search, search);
+      values.push(search, search, search);
     }
     const options = (
       db
         .prepare(
-          `SELECT id, name, recommended_platform
+          `SELECT id, name, recommended_platform, localized_content_json
            FROM opportunities
            ${where}
            ORDER BY CASE WHEN research_status = 'READY' AND stale_since IS NULL THEN 0 ELSE 1 END,
@@ -669,12 +744,20 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         id: string;
         name: string;
         recommended_platform: OpportunityOption["recommendedPlatform"];
+        localized_content_json: string;
       }>
     ).map(
       (row): OpportunityOption => ({
         id: row.id,
         name: row.name,
         recommendedPlatform: row.recommended_platform,
+        localizedContent: (() => {
+          try {
+            return JSON.parse(row.localized_content_json) as OpportunityOption["localizedContent"];
+          } catch {
+            return {};
+          }
+        })(),
       }),
     );
     response.json(options);
@@ -755,11 +838,22 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
 
   app.patch("/api/opportunities/:id", (request, response) => {
     const input = opportunityUpdateSchema.parse(request.body);
-    const updates = toSqlUpdates(input, {
+    const updates = toSqlUpdates({
+      ...input,
+      ...(input.targetMarkets
+        ? { targetMarkets: JSON.stringify(input.targetMarkets) }
+        : {}),
+      ...(input.localizedContent
+        ? { localizedContent: JSON.stringify(input.localizedContent) }
+        : {}),
+    }, {
       name: "name",
       oneLiner: "one_liner",
       targetUser: "target_user",
       recommendedPlatform: "recommended_platform",
+      originalLanguage: "original_language",
+      targetMarkets: "target_markets_json",
+      localizedContent: "localized_content_json",
     });
     if (updates.length) {
       const changedAt = now();
@@ -1346,14 +1440,18 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       tags: input.tags,
       status: "NEW",
       opportunityId: null,
+      market: input.market || null,
+      originalLanguage:
+        input.originalLanguage ??
+        languageFromMarket(input.market, input.title, input.content),
       createdAt,
       updatedAt: createdAt,
     };
     db.prepare(`
       INSERT INTO signals (
         id, source_type, title, content, source_url, tags_json, status,
-        opportunity_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'NEW', NULL, ?, ?)
+        opportunity_id, market, original_language, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'NEW', NULL, ?, ?, ?, ?)
     `).run(
       signal.id,
       signal.sourceType,
@@ -1361,6 +1459,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       signal.content,
       signal.sourceUrl,
       JSON.stringify(signal.tags),
+      signal.market,
+      signal.originalLanguage,
       createdAt,
       createdAt,
     );
@@ -1374,8 +1474,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     const statement = db.prepare(`
       INSERT INTO signals (
         id, source_type, title, content, source_url, tags_json, status,
-        opportunity_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'NEW', NULL, ?, ?)
+        opportunity_id, original_language, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'NEW', NULL, ?, ?, ?)
     `);
     const insert = db.transaction(() =>
       imported.map((signal) => {
@@ -1387,6 +1487,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
           signal.content,
           signal.sourceUrl,
           JSON.stringify(signal.tags),
+          detectContentLanguage(signal.title, signal.content),
           createdAt,
           createdAt,
         );
@@ -1444,6 +1545,21 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
 
     const createdAt = now();
     const opportunityId = randomUUID();
+    const language = signal.originalLanguage ?? detectContentLanguage(
+      signal.title,
+      signal.content,
+    );
+    const locale = language === "en" ? "en" : "zh-CN";
+    const linkedMarket = marketCode(signal.market);
+    const targetMarkets = [linkedMarket || (language === "en" ? "US" : "CN")];
+    const name = signal.title.slice(0, 120);
+    const oneLiner = signal.content.replace(/\s+/g, " ").slice(0, 240);
+    const targetUser = language === "en"
+      ? `People experiencing the problem described as “${signal.title}”`
+      : `遇到“${signal.title}”相关问题的目标用户`;
+    const pendingResearch = language === "en"
+      ? "Created from a signal and awaiting initial research."
+      : "由信号生成，等待首次调研。";
     const platform =
       /iphone|ios|app store|mobile|手机|相册|照片/i.test(
         `${signal.title} ${signal.content}`,
@@ -1455,16 +1571,27 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         INSERT INTO opportunities (
           id, name, one_liner, target_user, source_type, recommended_platform,
           verdict, research_status, score, score_delta, confidence,
-          change_summary, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'WATCH', 'UNRESEARCHED', 0, 0, 0, ?, ?, ?)
+          change_summary, original_language, target_markets_json,
+          localized_content_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'WATCH', 'UNRESEARCHED', 0, 0, 0, ?, ?, ?, ?, ?, ?)
       `).run(
         opportunityId,
-        signal.title.slice(0, 120),
-        signal.content.replace(/\s+/g, " ").slice(0, 240),
-        `遇到“${signal.title}”相关问题的目标用户`,
+        name,
+        oneLiner,
+        targetUser,
         signal.sourceType,
         platform,
-        "由信号生成，等待首次调研。",
+        pendingResearch,
+        language,
+        JSON.stringify(targetMarkets),
+        JSON.stringify({
+          [locale]: {
+            name,
+            oneLiner,
+            targetUser,
+            changeSummary: pendingResearch,
+          },
+        }),
         createdAt,
         createdAt,
       );

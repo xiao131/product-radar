@@ -8,8 +8,20 @@ import type {
 
 type Row = Record<string, unknown>;
 
+function parseJson<T>(value: unknown, fallback: T): T {
+  try {
+    return JSON.parse(String(value ?? "")) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export function mapOpportunity(row: Row): Opportunity {
   const researchStatus = row.research_status as Opportunity["researchStatus"];
+  const marketAssessments = parseJson<Opportunity["marketAssessments"]>(
+    row.market_assessments_json,
+    [],
+  );
   return {
     id: String(row.id),
     name: String(row.name),
@@ -37,6 +49,22 @@ export function mapOpportunity(row: Row): Opportunity {
     founderFitScore: Number(row.founder_fit_score),
     freshnessScore: Number(row.freshness_score),
     changeSummary: String(row.change_summary),
+    originalLanguage: (row.original_language ?? "und") as Opportunity["originalLanguage"],
+    targetMarkets: parseJson<string[]>(row.target_markets_json, []),
+    localizedContent: parseJson<Opportunity["localizedContent"]>(
+      row.localized_content_json,
+      {},
+    ),
+    marketAssessments,
+    selectedMarketAssessment: row.selected_market_assessment_json
+      ? parseJson<Opportunity["selectedMarketAssessment"]>(
+          row.selected_market_assessment_json,
+          null,
+        )
+      : null,
+    selectedMarketCode: row.selected_market_code
+      ? String(row.selected_market_code)
+      : null,
     discoveryKey: row.discovery_key ? String(row.discovery_key) : null,
     autoDiscovered: Boolean(row.auto_discovered),
     createdAt: String(row.created_at),
@@ -87,6 +115,7 @@ export function mapSignal(row: Row): Signal {
     opportunityId: row.opportunity_id ? String(row.opportunity_id) : null,
     fingerprint: row.fingerprint ? String(row.fingerprint) : null,
     market: row.market ? String(row.market) : null,
+    originalLanguage: (row.original_language ?? "und") as Signal["originalLanguage"],
     sourceName: row.source_name ? String(row.source_name) : null,
     metrics,
     discoveryRunId: row.discovery_run_id
@@ -117,6 +146,11 @@ export function mapEvidence(row: Row): EvidenceItem {
     strength: Number(row.strength),
     summary: String(row.summary),
     rawExcerpt: row.raw_excerpt ? String(row.raw_excerpt) : null,
+    originalLanguage: (row.original_language ?? "und") as EvidenceItem["originalLanguage"],
+    translations: parseJson<EvidenceItem["translations"]>(
+      row.translations_json,
+      {},
+    ),
     collectedAt: String(row.collected_at),
     freshnessDays: Number(row.freshness_days),
     fingerprint: row.fingerprint ? String(row.fingerprint) : null,
@@ -155,6 +189,8 @@ export function mapReport(row: Row): ResearchReport {
       estimatedDays: 0,
     },
     evidenceIds: payload.evidenceIds ?? [],
+    localizedContent: payload.localizedContent ?? {},
+    marketAssessments: payload.marketAssessments ?? [],
     citedClaims: payload.citedClaims ?? [],
     modelId: payload.modelId ?? (row.model_id ? String(row.model_id) : null),
     promptVersion:

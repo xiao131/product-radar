@@ -7,13 +7,16 @@ import "@fontsource/source-sans-3/latin-700.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { I18nProvider } from "./i18n";
 import { RouterProvider } from "./router";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <RouterProvider>
-      <App />
-    </RouterProvider>
+    <I18nProvider>
+      <RouterProvider>
+        <App />
+      </RouterProvider>
+    </I18nProvider>
   </StrictMode>,
 );

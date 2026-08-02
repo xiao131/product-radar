@@ -202,6 +202,10 @@ describe("production persistence", () => {
           dflt_value: "'UNDECIDED'",
         }),
         expect.objectContaining({ name: "workflow_updated_at" }),
+        expect.objectContaining({ name: "original_language", dflt_value: "'und'" }),
+        expect.objectContaining({ name: "target_markets_json", dflt_value: "'[]'" }),
+        expect.objectContaining({ name: "localized_content_json", dflt_value: "'{}'" }),
+        expect.objectContaining({ name: "market_assessments_json", dflt_value: "'[]'" }),
       ]),
     );
     expect(productIndexes).toEqual(

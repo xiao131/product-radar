@@ -1,4 +1,6 @@
 export type Platform = "WEB" | "IOS" | "WEB_AND_IOS";
+export type UiLocale = "zh-CN" | "en";
+export type ContentLanguage = UiLocale | "mixed" | "und";
 export type Verdict = "BUILD_NOW" | "VALIDATE_FIRST" | "WATCH" | "SKIP";
 export type WorkflowStatus =
   | "UNDECIDED"
@@ -72,6 +74,26 @@ export interface MvpPlan {
   estimatedDays: number;
 }
 
+export interface LocalizedOpportunityContent {
+  name: string;
+  oneLiner: string;
+  targetUser: string;
+  changeSummary?: string;
+}
+
+export type OpportunityLocalizations = Partial<
+  Record<UiLocale, LocalizedOpportunityContent>
+>;
+
+export interface MarketAssessment {
+  marketCode: string;
+  score: number;
+  confidence: number;
+  verdict: Verdict;
+  summary: string;
+  localizedSummary?: Partial<Record<UiLocale, string>>;
+}
+
 export interface Opportunity {
   id: string;
   name: string;
@@ -97,6 +119,12 @@ export interface Opportunity {
   founderFitScore: number;
   freshnessScore: number;
   changeSummary: string;
+  originalLanguage: ContentLanguage;
+  targetMarkets: string[];
+  localizedContent: OpportunityLocalizations;
+  marketAssessments: MarketAssessment[];
+  selectedMarketAssessment?: MarketAssessment | null;
+  selectedMarketCode?: string | null;
   discoveryKey?: string | null;
   autoDiscovered?: boolean;
   createdAt: string;
@@ -125,10 +153,31 @@ export interface EvidenceItem {
   strength: number;
   summary: string;
   rawExcerpt: string | null;
+  originalLanguage?: ContentLanguage;
+  translations?: Partial<
+    Record<UiLocale, { summary: string; rawExcerpt?: string | null }>
+  >;
   collectedAt: string;
   freshnessDays: number;
   fingerprint?: string | null;
   market?: string | null;
+}
+
+export interface LocalizedResearchContent {
+  opportunity: LocalizedOpportunityContent;
+  recommendedAction: string;
+  dimensionExplanations: Partial<Record<DimensionKey, string>>;
+  supportingReasons: string[];
+  opposingReasons: string[];
+  unknowns: string[];
+  risks: string[];
+  citedClaimTexts: string[];
+  platformAnalysis: PlatformAnalysis;
+  mvp: MvpPlan;
+  changeSummary: string;
+  researcherSummary: string;
+  debateSummary: string;
+  guardrailReasons: string[];
 }
 
 export interface ResearchReport {
@@ -151,6 +200,13 @@ export interface ResearchReport {
   platformAnalysis: PlatformAnalysis;
   mvp: MvpPlan;
   evidenceIds: string[];
+  localizedContent?: Partial<Record<UiLocale, LocalizedResearchContent>>;
+  marketAssessments?: MarketAssessment[];
+  evidenceTranslations?: Array<{
+    evidenceId: string;
+    "zh-CN": { summary: string; rawExcerpt: string | null };
+    en: { summary: string; rawExcerpt: string | null };
+  }>;
   citedClaims?: Array<{ text: string; evidenceIds: string[] }>;
   modelId?: string | null;
   promptVersion?: string | null;
@@ -256,6 +312,7 @@ export interface Signal {
   opportunityId: string | null;
   fingerprint?: string | null;
   market?: string | null;
+  originalLanguage?: ContentLanguage;
   sourceName?: string | null;
   metrics?: Record<string, unknown>;
   discoveryRunId?: string | null;
@@ -293,6 +350,7 @@ export interface OpportunityOption {
   id: string;
   name: string;
   recommendedPlatform: Platform;
+  localizedContent?: OpportunityLocalizations;
 }
 
 export interface DashboardData {

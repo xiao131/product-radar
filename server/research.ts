@@ -40,16 +40,17 @@ import type {
   ResearchReport,
   Verdict,
 } from "../shared/types.js";
+import { marketCode } from "../shared/localization.js";
 
 export class ResearchInProgressError extends Error {}
 
-export const RESEARCH_PROMPT_VERSION = "production-v3";
+export const RESEARCH_PROMPT_VERSION = "production-v4-bilingual";
 
 export const RESEARCH_STAGE_MAX_OUTPUT_TOKENS = {
   researcher: 4_000,
   debate: 4_000,
   judge: 4_000,
-  plan: 4_000,
+  plan: 16_000,
 } as const;
 
 export const DEEPSEEK_RESEARCH_STAGE_MAX_OUTPUT_TOKENS = {
@@ -298,18 +299,19 @@ function demoResearch(
       : webScore > iosScore
         ? "WEB"
         : "IOS";
+  const recommendedAction =
+    verdict === "BUILD_NOW"
+      ? "进入 7–14 天 MVP：只实现最强痛点闭环，并同步开放真实付费验证。"
+      : verdict === "VALIDATE_FIRST"
+        ? "先做价格页、访谈或人工服务测试；达到 3 个付费承诺后再开发。"
+        : verdict === "WATCH"
+          ? "继续收集搜索、抱怨和付费信号；出现连续增长后重新调研。"
+          : "停止开发投入，仅保留证据，除非出现结构性新信号。";
 
   return {
     verdict,
     recommendedPlatform,
-    recommendedAction:
-      verdict === "BUILD_NOW"
-        ? "进入 7–14 天 MVP：只实现最强痛点闭环，并同步开放真实付费验证。"
-        : verdict === "VALIDATE_FIRST"
-          ? "先做价格页、访谈或人工服务测试；达到 3 个付费承诺后再开发。"
-          : verdict === "WATCH"
-            ? "继续收集搜索、抱怨和付费信号；出现连续增长后重新调研。"
-            : "停止开发投入，仅保留证据，除非出现结构性新信号。",
+    recommendedAction,
     score,
     confidence,
     dimensionScores,
@@ -348,6 +350,107 @@ function demoResearch(
       estimatedDays: recommendedPlatform === "WEB_AND_IOS" ? 18 : score >= 78 ? 10 : 14,
     },
     evidenceIds: evidence.map((item) => item.id),
+    localizedContent: {
+      "zh-CN": {
+        opportunity: opportunity.localizedContent["zh-CN"] ?? {
+          name: opportunity.name,
+          oneLiner: opportunity.oneLiner,
+          targetUser: opportunity.targetUser,
+          changeSummary: opportunity.changeSummary,
+        },
+        recommendedAction,
+        dimensionExplanations: Object.fromEntries(
+          dimensionScores.map((item) => [item.key, item.explanation]),
+        ),
+        supportingReasons: ["痛点具体且可验证。", "可用窄范围原型测试需求。"],
+        opposingReasons: ["真实付费仍需验证。", "竞品可能快速补齐功能。"],
+        unknowns: ["真实获客成本", "价格敏感度", "第 7 天留存"],
+        risks: ["样本偏差", "平台替代风险"],
+        citedClaimTexts: evidence.slice(0, 2).map((item) => item.summary),
+        platformAnalysis: {
+          web: { score: webScore, note: "适合搜索获客和快速验证。" },
+          ios: { score: iosScore, note: "适合依赖移动场景的核心工作流。" },
+        },
+        mvp: {
+          promise: opportunity.oneLiner,
+          coreFeatures: ["单一核心输入", "自动完成关键处理", "结果预览与导出"],
+          exclusions: ["团队协作", "复杂账户体系"],
+          validationTest: "用可操作原型和价格页验证真实使用与付费。",
+          estimatedDays: recommendedPlatform === "WEB_AND_IOS" ? 18 : score >= 78 ? 10 : 14,
+        },
+        changeSummary: `本轮演示调研得分 ${score}。`,
+        researcherSummary: `本轮整理了 ${evidence.length} 条证据。`,
+        debateSummary: "机会存在，但真实付费和防替代性仍需验证。",
+        guardrailReasons: [],
+      },
+      en: {
+        opportunity: opportunity.localizedContent.en ?? {
+          name: opportunity.name,
+          oneLiner: opportunity.oneLiner,
+          targetUser: opportunity.targetUser,
+          changeSummary: opportunity.changeSummary,
+        },
+        recommendedAction:
+          verdict === "BUILD_NOW"
+            ? "Build a focused 7–14 day MVP and validate payment at the same time."
+            : verdict === "VALIDATE_FIRST"
+              ? "Validate with a pricing page, interviews, or a concierge test before building."
+              : verdict === "WATCH"
+                ? "Keep collecting demand and payment signals before reassessing."
+                : "Stop development investment until a structural new signal appears.",
+        dimensionExplanations: Object.fromEntries(
+          dimensionScores.map((item) => [
+            item.key,
+            `Based on ${evidence.length} evidence items in this demo research run.`,
+          ]),
+        ),
+        supportingReasons: ["The pain is concrete and testable.", "A narrow prototype can validate demand."],
+        opposingReasons: ["Payment intent is not yet proven.", "Competitors may copy a single feature quickly."],
+        unknowns: ["Acquisition cost", "Price sensitivity", "Day-7 retention"],
+        risks: ["Sample bias", "Platform substitution"],
+        citedClaimTexts: evidence.slice(0, 2).map((item) => item.summary),
+        platformAnalysis: {
+          web: { score: webScore, note: "Strong for search acquisition and rapid validation." },
+          ios: { score: iosScore, note: "Strong when the core workflow depends on mobile context." },
+        },
+        mvp: {
+          promise: opportunity.localizedContent.en?.oneLiner ?? opportunity.oneLiner,
+          coreFeatures: ["Single core input", "Automatic core processing", "Preview and export"],
+          exclusions: ["Team collaboration", "Complex accounts"],
+          validationTest: "Use a working prototype and pricing page to validate usage and payment.",
+          estimatedDays: recommendedPlatform === "WEB_AND_IOS" ? 18 : score >= 78 ? 10 : 14,
+        },
+        changeSummary: `This demo research run scored ${score}.`,
+        researcherSummary: `Reviewed ${evidence.length} evidence items.`,
+        debateSummary: "The opportunity exists, but payment and defensibility still need validation.",
+        guardrailReasons: [],
+      },
+    },
+    marketAssessments: (opportunity.targetMarkets.length
+      ? opportunity.targetMarkets
+      : ["DEMO"]
+    ).map((market) => ({
+      marketCode: market,
+      score,
+      confidence,
+      verdict,
+      summary: `Demo assessment for ${market}.`,
+      localizedSummary: {
+        "zh-CN": `${market} 的演示模式市场判断。`,
+        en: `Demo-mode market assessment for ${market}.`,
+      },
+    })),
+    evidenceTranslations: evidence.map((item) => ({
+      evidenceId: item.id,
+      "zh-CN": {
+        summary: item.summary,
+        rawExcerpt: item.rawExcerpt,
+      },
+      en: {
+        summary: `Evidence from ${item.sourceName}: ${item.metric}`,
+        rawExcerpt: item.rawExcerpt,
+      },
+    })),
     citedClaims: evidence.slice(0, 2).map((item) => ({
       text: item.summary,
       evidenceIds: [item.id],
@@ -368,6 +471,8 @@ function demoResearch(
       strength: item.strength,
       summary: item.summary,
       rawExcerpt: item.rawExcerpt,
+      originalLanguage: item.originalLanguage ?? "und",
+      translations: item.translations ?? {},
       collectedAt: item.collectedAt,
       freshnessDays: item.freshnessDays,
       fingerprint: item.fingerprint ?? null,
@@ -404,6 +509,8 @@ async function realResearch(
     strength: item.strength,
     summary: item.summary,
     rawExcerpt: item.rawExcerpt,
+    originalLanguage: item.originalLanguage ?? "und",
+    translations: item.translations ?? {},
     collectedAt: item.collectedAt,
     market: item.market ?? null,
   }));
@@ -411,6 +518,7 @@ async function realResearch(
 一句话：${opportunity.oneLiner}
 目标用户：${opportunity.targetUser}
 候选平台：${opportunity.recommendedPlatform}
+目标市场：${opportunity.targetMarkets.length ? opportunity.targetMarkets.join(", ") : "根据证据判断"}
 现有产品组合：
 ${products.length ? products.map((product) => `- ${product.name} / ${product.platform} / ${product.status}: ${product.description}`).join("\n") : "- 暂无"}
 证据覆盖：${JSON.stringify(coverage)}
@@ -587,11 +695,12 @@ ${dimensions.map((item) => item.key).join("\n")}
   const plan = await generateStage(
     "plan",
     researchStageFourPlanSchema,
-    "你是独立开发者的产品落地顾问。根据已经完成的市场研究和最终评分，给出平台选择、风险、验证动作与最小可行产品方案。不得改变裁判结论，不得虚构证据。输出要信息密集，每条说明尽量不超过 80 个汉字。",
+    "你是独立开发者的产品落地顾问。根据已经完成的市场研究和最终评分，给出平台选择、风险、验证动作与最小可行产品方案。不得改变裁判结论，不得虚构证据。localizedContent 必须把候选定义、裁判结论、维度解释、证据引用、平台建议和 MVP 完整整理为自然中文与自然英文；品牌名保持原文。evidenceTranslations 必须覆盖输入中的每条证据并保留原意，原文中的品牌、数字和专有名词不得改写。marketAssessments 必须按证据中实际出现的国家代码分别判断市场机会，不能因为界面语言改变分数。输出要信息密集。",
     `${context}
 研究员摘要：${researcher.output.factualSummary}
 正反辩论摘要：${debate.output.debateSummary}
-裁判结论：${JSON.stringify(judge.output)}`,
+裁判结论：${JSON.stringify(judge.output)}
+请让 localizedContent.zh-CN 与 localizedContent.en 表达完全相同的判断。每个市场分别输出 score、confidence、verdict 和 summary；若只有一个市场，就只输出该市场。`,
   ).catch(failPipeline);
 
   const finalOutput = { ...judge.output, ...plan.output };
@@ -615,6 +724,41 @@ ${dimensions.map((item) => item.key).join("\n")}
     citedClaims.length,
   );
   const guardrailReasons = guardrail.reasons;
+  const evidenceMarketCodes = [
+    ...new Set(evidence.map((item) => marketCode(item.market)).filter(Boolean)),
+  ];
+  const marketAssessments = finalOutput.marketAssessments
+    .map((assessment) => ({
+      ...assessment,
+      marketCode: assessment.marketCode.toUpperCase(),
+      score: clamp(assessment.score),
+      confidence: guardrailReasons.length
+        ? Math.min(60, clamp(assessment.confidence))
+        : clamp(assessment.confidence),
+      verdict:
+        guardrailReasons.length > 0 && assessment.verdict === "BUILD_NOW"
+          ? ("VALIDATE_FIRST" as const)
+          : assessment.verdict,
+      summary:
+        guardrailReasons.length > 0 && assessment.verdict === "BUILD_NOW"
+          ? `${assessment.summary} Evidence sufficiency guardrail requires validation first.`
+          : assessment.summary,
+      localizedSummary:
+        guardrailReasons.length > 0 && assessment.verdict === "BUILD_NOW"
+          ? {
+              "zh-CN": `${assessment.localizedSummary["zh-CN"]} 证据充分性保护要求先验证。`,
+              en: `${assessment.localizedSummary.en} The evidence sufficiency guardrail requires validation first.`,
+            }
+          : assessment.localizedSummary,
+    }))
+    .filter(
+      (assessment, index, items) =>
+        (!evidenceMarketCodes.length ||
+          evidenceMarketCodes.includes(assessment.marketCode)) &&
+        items.findIndex(
+          (candidate) => candidate.marketCode === assessment.marketCode,
+        ) === index,
+    );
   usageLedger.settle(
     aiReservationId,
     "research_pipeline_tokens",
@@ -635,6 +779,22 @@ ${dimensions.map((item) => item.key).join("\n")}
     dimensionScores,
     evidenceIds: evidence.map((item) => item.id),
     citedClaims,
+    localizedContent: finalOutput.localizedContent,
+    marketAssessments: marketAssessments.length
+      ? marketAssessments
+      : [{
+          marketCode: evidenceMarketCodes[0] ?? "GLOBAL",
+          score,
+          confidence: guardrailReasons.length
+            ? Math.min(60, clamp(finalOutput.confidence))
+            : clamp(finalOutput.confidence),
+          verdict: guardrail.verdict,
+          summary: finalOutput.changeSummary,
+          localizedSummary: {
+            "zh-CN": finalOutput.localizedContent["zh-CN"].changeSummary,
+            en: finalOutput.localizedContent.en.changeSummary,
+          },
+        }],
     modelId: config.aiModel,
     promptVersion: RESEARCH_PROMPT_VERSION,
     evidenceCoverage: coverage,
@@ -682,6 +842,8 @@ function getReport(db: RadarDatabase, opportunityId: string): ResearchReport | n
     platformAnalysis: payload.platformAnalysis!,
     mvp: payload.mvp!,
     evidenceIds: payload.evidenceIds ?? [],
+    localizedContent: payload.localizedContent ?? {},
+    marketAssessments: payload.marketAssessments ?? [],
     citedClaims: payload.citedClaims ?? [],
     modelId: payload.modelId ?? (row.model_id ? String(row.model_id) : null),
     promptVersion:
@@ -698,11 +860,54 @@ function getReport(db: RadarDatabase, opportunityId: string): ResearchReport | n
   };
 }
 
+export function canBackfillBilingualContentWithoutCollection(
+  db: RadarDatabase,
+  opportunity: Opportunity,
+  baseFreshnessDays: number,
+) {
+  if (!opportunity.decisionCurrent) return false;
+  const previousReport = getReport(db, opportunity.id);
+  if (!previousReport) return false;
+  if (
+    hasBilingualOpportunityContent(opportunity) &&
+    hasBilingualReportContent(previousReport)
+  ) {
+    return false;
+  }
+  if (
+    !isFresh(
+      opportunity.lastResearchedAt,
+      researchFreshnessDaysFor(opportunity, baseFreshnessDays),
+    )
+  ) {
+    return false;
+  }
+  const evidence = db
+    .prepare(
+      "SELECT 1 FROM evidence_items WHERE opportunity_id = ? LIMIT 1",
+    )
+    .get(opportunity.id);
+  return Boolean(evidence);
+}
+
 function isFresh(lastResearchedAt: string | null, freshnessDays: number) {
   if (!lastResearchedAt) return false;
   const researchedAt = Date.parse(lastResearchedAt);
   if (!Number.isFinite(researchedAt)) return false;
   return Date.now() - researchedAt < freshnessDays * 24 * 60 * 60 * 1_000;
+}
+
+function hasBilingualOpportunityContent(opportunity: Opportunity) {
+  const zh = opportunity.localizedContent["zh-CN"];
+  const en = opportunity.localizedContent.en;
+  return Boolean(
+    zh?.name && zh.oneLiner && zh.targetUser &&
+      en?.name && en.oneLiner && en.targetUser,
+  );
+}
+
+function hasBilingualReportContent(report: ResearchReport | null) {
+  return Boolean(report?.localizedContent?.["zh-CN"] && report.localizedContent.en);
 }
 
 export function reusableFailedResearchEvidence(
@@ -754,6 +959,7 @@ export function isOpportunityResearchDue(
   baseFreshnessDays: number,
 ) {
   if (opportunity.researchStatus === "RUNNING") return false;
+  if (!hasBilingualOpportunityContent(opportunity)) return true;
   if (!opportunity.decisionCurrent) return true;
   return !isFresh(
     opportunity.lastResearchedAt,
@@ -806,11 +1012,35 @@ export async function researchOpportunity(
     opportunity,
     config.researchFreshnessDays,
   );
+  const currentDataIsFresh = isFresh(
+    opportunity.lastResearchedAt,
+    freshnessDays,
+  );
+  const existingEvidenceCount = Number(
+    (
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM evidence_items WHERE opportunity_id = ?",
+        )
+        .get(opportunityId) as { count: number }
+    ).count,
+  );
+  const bilingualBackfillOnly = Boolean(
+    !options.force &&
+      previousReport &&
+      opportunity.decisionCurrent &&
+      currentDataIsFresh &&
+      existingEvidenceCount > 0 &&
+      (!hasBilingualOpportunityContent(opportunity) ||
+        !hasBilingualReportContent(previousReport)),
+  );
   if (
     !options.force &&
     previousReport &&
+    hasBilingualOpportunityContent(opportunity) &&
+    hasBilingualReportContent(previousReport) &&
     opportunity.decisionCurrent &&
-    isFresh(opportunity.lastResearchedAt, freshnessDays)
+    currentDataIsFresh
   ) {
     return {
       report: previousReport,
@@ -833,7 +1063,8 @@ export async function researchOpportunity(
 
   try {
     const newEvidence =
-      options.collectedEvidence ?? (await provider.collect(opportunity, version));
+      options.collectedEvidence ??
+      (bilingualBackfillOnly ? [] : await provider.collect(opportunity, version));
     if (!options.evidenceAlreadyPersisted) {
       persistEvidence(db, newEvidence);
     }
@@ -860,6 +1091,27 @@ export async function researchOpportunity(
             db,
           )
         : demoResearch(opportunity, evidence, version, products);
+    const validEvidenceIds = new Set(evidence.map((item) => item.id));
+    const evidenceTranslations = (output.evidenceTranslations ?? []).filter(
+      (item, index, items) =>
+        validEvidenceIds.has(item.evidenceId) &&
+        items.findIndex((candidate) => candidate.evidenceId === item.evidenceId) === index,
+    );
+    const translationsByEvidenceId = new Map(
+      evidenceTranslations.map((item) => [
+        item.evidenceId,
+        { "zh-CN": item["zh-CN"], en: item.en },
+      ]),
+    );
+    const localizedEvidenceSnapshot = (output.evidenceSnapshot ?? []).map(
+      (item) => ({
+        ...item,
+        translations:
+          translationsByEvidenceId.get(String(item.id)) ??
+          item.translations ??
+          {},
+      }),
+    );
     const scoreDelta = output.score - (previousReport?.score ?? 0);
     const finishedAt = new Date().toISOString();
     const reportId = randomUUID();
@@ -872,11 +1124,13 @@ export async function researchOpportunity(
       platformAnalysis: output.platformAnalysis,
       mvp: output.mvp,
       evidenceIds: output.evidenceIds,
+      localizedContent: output.localizedContent ?? {},
+      marketAssessments: output.marketAssessments ?? [],
       citedClaims: output.citedClaims,
       modelId: output.modelId,
       promptVersion: output.promptVersion,
       evidenceCoverage: output.evidenceCoverage,
-      evidenceSnapshot: output.evidenceSnapshot,
+      evidenceSnapshot: localizedEvidenceSnapshot,
       guardrail: output.guardrail,
       usage: output.usage,
     };
@@ -888,6 +1142,16 @@ export async function researchOpportunity(
       const invalidatedDuringRun = Boolean(
         currentState.stale_since !== opportunity.staleSince,
       );
+      const updateEvidenceTranslation = db.prepare(
+        "UPDATE evidence_items SET translations_json = ? WHERE id = ? AND opportunity_id = ?",
+      );
+      for (const item of evidenceTranslations) {
+        updateEvidenceTranslation.run(
+          JSON.stringify({ "zh-CN": item["zh-CN"], en: item.en }),
+          item.evidenceId,
+          opportunityId,
+        );
+      }
       db.prepare(`
         INSERT INTO research_reports (
           id, opportunity_id, run_id, version, provider_mode, verdict,
@@ -928,6 +1192,8 @@ export async function researchOpportunity(
           demand_score = ?, pain_score = ?, trend_score = ?, willingness_score = ?,
           competition_gap_score = ?, reachability_score = ?, buildability_score = ?,
           founder_fit_score = ?, freshness_score = ?, change_summary = ?,
+          localized_content_json = ?, market_assessments_json = ?,
+          target_markets_json = ?,
           updated_at = ?, last_researched_at = ?
         WHERE id = ?
       `).run(
@@ -950,6 +1216,24 @@ export async function researchOpportunity(
         invalidatedDuringRun
           ? "调研期间产品或证据再次变化；本次报告已保留为历史，等待重新评估。"
           : output.changeSummary,
+        JSON.stringify({
+          ...opportunity.localizedContent,
+          ...(output.localizedContent?.["zh-CN"]
+            ? {
+                "zh-CN": output.localizedContent["zh-CN"].opportunity,
+              }
+            : {}),
+          ...(output.localizedContent?.en
+            ? { en: output.localizedContent.en.opportunity }
+            : {}),
+        }),
+        JSON.stringify(output.marketAssessments ?? []),
+        JSON.stringify([
+          ...new Set([
+            ...opportunity.targetMarkets,
+            ...(output.marketAssessments ?? []).map((item) => item.marketCode),
+          ]),
+        ]),
         finishedAt,
         finishedAt,
         opportunityId,
@@ -980,11 +1264,13 @@ export async function researchOpportunity(
       platformAnalysis: output.platformAnalysis,
       mvp: output.mvp,
       evidenceIds: output.evidenceIds,
+      localizedContent: output.localizedContent ?? {},
+      marketAssessments: output.marketAssessments ?? [],
       citedClaims: output.citedClaims,
       modelId: output.modelId,
       promptVersion: output.promptVersion,
       evidenceCoverage: output.evidenceCoverage,
-      evidenceSnapshot: output.evidenceSnapshot,
+      evidenceSnapshot: localizedEvidenceSnapshot,
       guardrail: output.guardrail,
       usage: output.usage,
       changeSummary: output.changeSummary,
@@ -1154,6 +1440,27 @@ export async function researchDueOpportunities(
   const requests: ResearchCollectionRequest[] = [];
   for (const opportunity of opportunities) {
     const forceRefresh = forcedIds.has(opportunity.id);
+    const previousReport = getReport(db, opportunity.id);
+    const needsBilingualBackfill =
+      !forceRefresh &&
+      opportunity.decisionCurrent &&
+      previousReport !== null &&
+      (!hasBilingualOpportunityContent(opportunity) ||
+        !hasBilingualReportContent(previousReport));
+    if (needsBilingualBackfill) {
+      const existingEvidence = (
+        db
+          .prepare(
+            "SELECT * FROM evidence_items WHERE opportunity_id = ? ORDER BY collected_at DESC LIMIT 40",
+          )
+          .all(opportunity.id) as Record<string, unknown>[]
+      ).map(mapEvidence);
+      if (existingEvidence.length) {
+        evidenceByOpportunity.set(opportunity.id, existingEvidence);
+        persistedEvidenceOpportunityIds.add(opportunity.id);
+        continue;
+      }
+    }
     const reusableEvidence = forceRefresh
       ? null
       : reusableFailedResearchEvidence(
@@ -1192,9 +1499,13 @@ export async function researchDueOpportunities(
 
     try {
       const previousReport = getReport(db, opportunity.id);
+      const needsBilingualBackfill =
+        !hasBilingualOpportunityContent(opportunity) ||
+        !hasBilingualReportContent(previousReport);
       const previousMetrics = latestMetricValues(db, opportunity.id);
       if (
         previousReport &&
+        !needsBilingualBackfill &&
         opportunity.decisionCurrent &&
         opportunity.lastResearchedAt !== null &&
         !hasMaterialEvidenceChange(previousMetrics, evidence)

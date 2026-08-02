@@ -17,7 +17,13 @@ import type {
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, Modal } from "../components";
 import { SignalForm } from "../forms";
-import { shortDate, sourceLabels } from "../format";
+import {
+  formatDate,
+  languageName,
+  marketName,
+  sourceName,
+  useI18n,
+} from "../i18n";
 import { useNavigate } from "../router";
 
 function metricValue(value: unknown) {
@@ -35,6 +41,7 @@ function visibleMetricEntries(metrics: Record<string, unknown> | undefined) {
 }
 
 export function SignalsPage() {
+  const { locale, t } = useI18n();
   const [signals, setSignals] = useState<SignalPage | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
@@ -55,7 +62,7 @@ export function SignalsPage() {
     setError("");
     api<SignalPage>(`/api/signals?page=${page}&pageSize=20`)
       .then(setSignals)
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "读取失败"));
+      .catch((caught) => setError(caught instanceof Error ? caught.message : t("读取失败", "Failed to load")));
   }
 
   useEffect(() => {
@@ -81,7 +88,7 @@ export function SignalsPage() {
       });
       navigate(`/radar/${opportunity.id}`);
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "处理失败");
+      setActionError(caught instanceof Error ? caught.message : t("处理失败", "Processing failed"));
       setProcessing("");
     }
   }
@@ -97,7 +104,7 @@ export function SignalsPage() {
       );
       setOpportunityOptions(options);
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "候选读取失败");
+      setActionError(caught instanceof Error ? caught.message : t("候选读取失败", "Failed to load candidates"));
     }
   }
 
@@ -117,7 +124,7 @@ export function SignalsPage() {
       load();
       navigate(`/radar/${opportunity.id}`);
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "关联失败");
+      setActionError(caught instanceof Error ? caught.message : t("关联失败", "Linking failed"));
     } finally {
       setLinking(false);
     }
@@ -135,10 +142,10 @@ export function SignalsPage() {
         method: "POST",
         body: JSON.stringify({ csv }),
       });
-      setActionMessage(`已导入 ${result.imported} 条证据。`);
+      setActionMessage(t(`已导入 ${result.imported} 条证据。`, `Imported ${result.imported} evidence items.`));
       load();
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "导入失败");
+      setActionError(caught instanceof Error ? caught.message : t("导入失败", "Import failed"));
     } finally {
       setImporting(false);
       event.target.value = "";
@@ -146,16 +153,16 @@ export function SignalsPage() {
   }
 
   if (error) return <ErrorState message={error} retry={load} />;
-  if (!signals) return <LoadingState label="正在读取原始证据" />;
+  if (!signals) return <LoadingState label={t("正在读取原始证据", "Loading raw evidence")} />;
 
   return (
     <div>
       <section className="signal-actions">
         <div>
-          <span className="eyebrow">AUDITABLE EVIDENCE</span>
-          <h2>证据由系统归并，不需要逐条处理</h2>
+          <span className="eyebrow">{t("可追溯证据", "AUDITABLE EVIDENCE")}</span>
+          <h2>{t("证据由系统归并，不需要逐条处理", "The system groups evidence automatically")}</h2>
           <p>
-            自动采集内容会先去重，再由 AI 聚类成候选产品；这里仅用于追溯来源和补充手工线索。
+            {t("自动采集内容会先去重，再由 AI 聚类成候选产品；这里仅用于追溯来源和补充手工线索。", "Automatically collected content is deduplicated before AI groups it into candidates. Use this page for traceability and manual additions.")}
           </p>
         </div>
         <div>
@@ -170,30 +177,30 @@ export function SignalsPage() {
               onChange={importCsv}
               disabled={importing}
             />
-            <FileUp size={16} /> {importing ? "导入中…" : "导入 CSV"}
+            <FileUp size={16} /> {importing ? t("导入中…", "Importing…") : t("导入 CSV", "Import CSV")}
           </label>
           <button className="button button--primary" onClick={() => setModalOpen(true)}>
-            <Plus size={16} /> 添加信号
+            <Plus size={16} /> {t("添加信号", "Add signal")}
           </button>
         </div>
       </section>
       <p className="csv-hint">
-        CSV 支持列：<code>title, content, source_type, source_url, tags</code>，tags 用分号分隔。
+        {t("CSV 支持列", "CSV columns")}: <code>title, content, source_type, source_url, tags</code>{t("，tags 用分号分隔。", "; separate tags with semicolons.")}
       </p>
       <section className="signal-activity" aria-live="polite">
-        <span><strong>{signals.total}</strong> 条原始证据</span>
+        <span><strong>{signals.total}</strong> {t("条原始证据", "raw evidence items")}</span>
         <span>
-          最近一轮采集 <strong>{signals.activity.collectedSignals}</strong> 条：
-          新增 <strong>{signals.activity.insertedSignals}</strong>，
-          复用/更新 <strong>{signals.activity.reusedSignals}</strong>
+          {t("最近一轮采集", "Latest collection")} <strong>{signals.activity.collectedSignals}</strong>：
+          {t("新增", "new")} <strong>{signals.activity.insertedSignals}</strong>，
+          {t("复用/更新", "reused/updated")} <strong>{signals.activity.reusedSignals}</strong>
         </span>
-        <span><strong>{signals.activity.waitingAi}</strong> 条等待 AI 筛选</span>
+        <span><strong>{signals.activity.waitingAi}</strong> {t("条等待 AI 筛选", "awaiting AI review")}</span>
         <span>
-          最近更新 {signals.activity.latestUpdatedAt
-            ? shortDate(signals.activity.latestUpdatedAt)
-            : "暂无"}
+          {t("最近更新", "Last updated")} {signals.activity.latestUpdatedAt
+            ? formatDate(signals.activity.latestUpdatedAt, locale)
+            : t("暂无", "None")}
         </span>
-        <small>页面每 30 秒自动刷新</small>
+        <small>{t("页面每 30 秒自动刷新", "Refreshes every 30 seconds")}</small>
       </section>
       {actionError && <div className="form-error standalone-error" role="alert">{actionError}</div>}
       {actionMessage && <div className="form-success standalone-error" role="status">{actionMessage}</div>}
@@ -205,20 +212,21 @@ export function SignalsPage() {
             <article className="signal-card" key={signal.id}>
               <div className="signal-card__source">
                 <Inbox size={17} />
-                <span>{sourceLabels[signal.sourceType]}</span>
+                <span>{sourceName(signal.sourceType, locale)}</span>
                 {signal.sourceName && <small>{signal.sourceName}</small>}
-                {signal.market && <small>{signal.market}</small>}
+                {signal.market && <small>{marketName(signal.market, locale)}</small>}
+                {signal.originalLanguage && <small>{languageName(signal.originalLanguage, locale)}</small>}
                 {signal.autoCollected && (
                   <small className="signal-auto-badge">AUTO</small>
                 )}
                 {(signal.duplicateCount ?? 1) > 1 && (
                   <small className="signal-auto-badge">
-                    已合并 {signal.duplicateCount} 条
+                    {t("已合并", "Merged")} {signal.duplicateCount} {t("条", "items")}
                   </small>
                 )}
-                <small>首次采集 {shortDate(signal.createdAt)}</small>
+                <small>{t("首次采集", "First collected")} {formatDate(signal.createdAt, locale)}</small>
                 {signal.updatedAt !== signal.createdAt && (
-                  <small>最近更新 {shortDate(signal.updatedAt)}</small>
+                  <small>{t("最近更新", "Updated")} {formatDate(signal.updatedAt, locale)}</small>
                 )}
               </div>
               <div className="signal-card__body">
@@ -226,14 +234,14 @@ export function SignalsPage() {
                   <strong>{signal.title}</strong>
                   <span className={`signal-status signal-status--${signal.status.toLowerCase()}`}>
                     {signal.status === "ARCHIVED"
-                      ? "已归档"
+                      ? t("已归档", "Archived")
                       : signal.opportunityId
-                        ? "已归并候选"
+                        ? t("已归并候选", "Grouped into candidate")
                         : signal.autoCollected
                           ? signal.aiReviewedAt
-                            ? "AI 已筛选"
-                            : "等待 AI 筛选"
-                          : "待判断"}
+                            ? t("AI 已筛选", "AI reviewed")
+                            : t("等待 AI 筛选", "Awaiting AI review")
+                          : t("待判断", "Awaiting decision")}
                   </span>
                 </div>
                 <p>{signal.content}</p>
@@ -256,13 +264,13 @@ export function SignalsPage() {
               <div className="signal-card__action">
                 {signal.opportunityId ? (
                   <button className="button button--secondary button--small" onClick={() => navigate(`/radar/${signal.opportunityId}`)}>
-                    查看候选 <ArrowRight size={14} />
+                    {t("查看候选", "View candidate")} <ArrowRight size={14} />
                   </button>
                 ) : signal.autoCollected ? (
                   <span className="muted-copy">
                     {signal.aiReviewedAt
-                      ? "AI 已筛选，本轮暂未形成候选；数据变化后会继续复核"
-                      : "尚未归入候选，系统会在后续批次继续筛选"}
+                      ? t("AI 已筛选，本轮暂未形成候选；数据变化后会继续复核", "AI reviewed this signal but did not form a candidate; it will be checked again when data changes.")
+                      : t("尚未归入候选，系统会在后续批次继续筛选", "Not yet grouped into a candidate; later batches will continue reviewing it.")}
                   </span>
                 ) : (
                   <div className="signal-card__button-stack">
@@ -270,14 +278,14 @@ export function SignalsPage() {
                       className="button button--secondary button--small"
                       onClick={() => openLinking(signal)}
                     >
-                      <Link2 size={14} /> 加入已有候选
+                      <Link2 size={14} /> {t("加入已有候选", "Add to existing candidate")}
                     </button>
                     <button
                       className="button button--ink button--small"
                       disabled={processing === signal.id}
                       onClick={() => processSignal(signal)}
                     >
-                      {processing === signal.id ? "处理中…" : "转为新候选"} <ArrowRight size={14} />
+                      {processing === signal.id ? t("处理中…", "Processing…") : t("转为新候选", "Create candidate")} <ArrowRight size={14} />
                     </button>
                   </div>
                 )}
@@ -287,14 +295,14 @@ export function SignalsPage() {
           </section>
           <footer className="pagination">
             <span>
-              第 {signals.page} / {signals.totalPages} 页 · 共 {signals.total} 条
+              {t("第", "Page")} {signals.page} / {signals.totalPages} · {signals.total} {t("条", "items")}
             </span>
             <div>
               <button
                 className="icon-button"
                 disabled={page <= 1}
                 onClick={() => setPage((value) => value - 1)}
-                aria-label="上一页"
+                aria-label={t("上一页", "Previous page")}
               >
                 <ChevronLeft size={18} />
               </button>
@@ -302,7 +310,7 @@ export function SignalsPage() {
                 className="icon-button"
                 disabled={page >= signals.totalPages}
                 onClick={() => setPage((value) => value + 1)}
-                aria-label="下一页"
+                aria-label={t("下一页", "Next page")}
               >
                 <ChevronRight size={18} />
               </button>
@@ -311,15 +319,15 @@ export function SignalsPage() {
         </>
       ) : (
         <EmptyState
-          title="还没有原始证据"
-          description="真实模式会按计划自动采集；你也可以补充产品点子或真实用户抱怨。"
-          action={<button className="button button--primary" onClick={() => setModalOpen(true)}>添加第一条线索</button>}
+          title={t("还没有原始证据", "No raw evidence yet")}
+          description={t("真实模式会按计划自动采集；你也可以补充产品点子或真实用户抱怨。", "Live mode collects on schedule; you can also add product ideas or real user complaints.")}
+          action={<button className="button button--primary" onClick={() => setModalOpen(true)}>{t("添加第一条线索", "Add the first signal")}</button>}
         />
       )}
 
       <Modal
-        title="捕捉一条新信号"
-        subtitle="它可以是点子，也可以是一段来自评论区的原始抱怨。"
+        title={t("捕捉一条新信号", "Capture a new signal")}
+        subtitle={t("它可以是点子，也可以是一段来自评论区的原始抱怨。", "It can be an idea or an original complaint from a comment thread.")}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
       >
@@ -344,27 +352,27 @@ export function SignalsPage() {
                 : current,
             );
             setModalOpen(false);
-            setActionMessage("信号已保存，可继续转为新候选或加入已有候选。");
+            setActionMessage(t("信号已保存，可继续转为新候选或加入已有候选。", "Signal saved. You can create a candidate or add it to an existing one."));
           }}
         />
       </Modal>
       <Modal
-        title="把信号加入已有候选"
-        subtitle={linkingSignal ? `“${linkingSignal.title}”将成为候选的用户痛点证据，并触发重新调研。` : ""}
+        title={t("把信号加入已有候选", "Add signal to an existing candidate")}
+        subtitle={linkingSignal ? t(`“${linkingSignal.title}”将成为候选的用户痛点证据，并触发重新调研。`, `“${linkingSignal.title}” will become user-pain evidence and trigger reassessment.`) : ""}
         open={Boolean(linkingSignal)}
         onClose={() => setLinkingSignal(null)}
       >
         <div className="link-signal-form">
           <label>
-            选择候选产品
+            {t("选择候选产品", "Choose a candidate")}
             <select
               value={linkTarget}
               onChange={(event) => setLinkTarget(event.target.value)}
             >
-              <option value="">请选择…</option>
+              <option value="">{t("请选择…", "Choose…")}</option>
               {opportunityOptions.map((option) => (
                 <option value={option.id} key={option.id}>
-                  {option.name}
+                  {option.localizedContent?.[locale]?.name ?? option.name}
                 </option>
               ))}
             </select>
@@ -374,14 +382,14 @@ export function SignalsPage() {
               className="button button--secondary"
               onClick={() => setLinkingSignal(null)}
             >
-              取消
+              {t("取消", "Cancel")}
             </button>
             <button
               className="button button--primary"
               disabled={!linkTarget || linking}
               onClick={linkToOpportunity}
             >
-              {linking ? "关联中…" : "加入并标记待调研"}
+              {linking ? t("关联中…", "Linking…") : t("加入并标记待调研", "Add and mark for research")}
             </button>
           </div>
         </div>

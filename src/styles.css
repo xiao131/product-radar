@@ -266,6 +266,7 @@ textarea:focus-visible {
 
 .topbar__titles {
   flex: 1;
+  min-width: 0;
 }
 
 .topbar h1 {
@@ -2359,6 +2360,16 @@ body.modal-open {
 }
 
 @media (max-width: 1180px) {
+  .radar-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .filter-group {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+  }
+
   .decision-hero {
     grid-template-columns: minmax(0, 1.4fr) 300px;
   }
@@ -2463,7 +2474,15 @@ body.modal-open {
   }
 
   .topbar h1 {
+    overflow: hidden;
     font-size: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .topbar .language-switch--compact button {
+    min-width: 36px;
+    padding: 5px 6px;
   }
 
   .quick-add {
@@ -2644,6 +2663,7 @@ body.modal-open {
 }
 
 .login-page {
+  position: relative;
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(0, 1.65fr) minmax(340px, 0.75fr);
@@ -3378,6 +3398,163 @@ body.modal-open {
   font-size: 11px;
 }
 
+.language-switch {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px;
+  border: 1px solid var(--line);
+  background: var(--paper-deep);
+}
+
+.language-switch button {
+  min-width: 66px;
+  padding: 7px 12px;
+  color: #737a74;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.language-switch button.is-active {
+  color: var(--paper);
+  background: var(--forest);
+}
+
+.language-switch--compact button {
+  min-width: 46px;
+  padding: 6px 9px;
+}
+
+.topbar .language-switch {
+  flex: 0 0 auto;
+}
+
+.login-language {
+  position: absolute;
+  z-index: 2;
+  top: 28px;
+  right: 30px;
+}
+
+.login-language .language-switch {
+  background: rgba(250, 248, 240, 0.9);
+  backdrop-filter: blur(8px);
+}
+
+.opportunity-original-name,
+.opportunity-market-name,
+.detail-original-name {
+  display: block;
+  margin-top: 5px;
+  color: #737a74;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.opportunity-market-name {
+  width: fit-content;
+  padding: 2px 6px;
+  color: var(--forest);
+  border: 1px solid var(--line);
+  background: var(--forest-light);
+}
+
+.detail-market-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 13px;
+}
+
+.detail-market-tags span {
+  padding: 4px 8px;
+  color: #5f6761;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  border: 1px solid var(--line);
+  background: var(--paper-deep);
+}
+
+.evidence-language-toggle {
+  width: fit-content;
+  margin-top: 7px;
+  font-size: 11px;
+}
+
+.market-assessment-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.market-assessment-list article {
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.market-assessment-list article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.market-assessment-list article > span {
+  color: var(--forest);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+}
+
+.market-assessment-list article p {
+  color: #5f6761;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.form-section-label {
+  margin: 6px 0 -3px;
+  padding-bottom: 7px;
+  color: var(--forest);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+
+.market-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  margin: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+}
+
+.market-checkboxes legend {
+  padding: 0 5px;
+  color: #5f6761;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.market-checkboxes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #5f6761;
+  font-size: 12px;
+}
+
 @media (max-width: 900px) {
   .login-page {
     grid-template-columns: 1fr;
@@ -3450,6 +3627,11 @@ body.modal-open {
 }
 
 @media (max-width: 620px) {
+  .login-language {
+    top: 18px;
+    right: 18px;
+  }
+
   .login-manifesto,
   .login-rail {
     padding: 28px 22px;

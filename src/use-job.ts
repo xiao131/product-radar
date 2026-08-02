@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import type { JobRun } from "../shared/types";
 import { api } from "./api";
+import { useI18n } from "./i18n";
 
 export function useJobPolling(jobId: string | null) {
+  const { t } = useI18n();
   const [job, setJob] = useState<JobRun | null>(null);
   const [error, setError] = useState("");
 
@@ -40,7 +42,7 @@ export function useJobPolling(jobId: string | null) {
       } catch (caught) {
         if (cancelled || (caught instanceof DOMException && caught.name === "AbortError")) return;
         attempts += 1;
-        setError(caught instanceof Error ? caught.message : "任务状态读取失败");
+        setError(caught instanceof Error ? caught.message : t("任务状态读取失败", "Failed to read job status"));
         schedule();
       }
     };
@@ -63,7 +65,7 @@ export function useJobPolling(jobId: string | null) {
       controller?.abort();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [jobId]);
+  }, [jobId, t]);
 
   return { job, error };
 }

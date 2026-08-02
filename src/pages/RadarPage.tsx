@@ -16,6 +16,7 @@ import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, OpportunityRow } from "../components";
 import { useNavigate, useSearch } from "../router";
 import { useJobPolling } from "../use-job";
+import { useI18n } from "../i18n";
 
 const defaultResult: Paginated<Opportunity> = {
   items: [],
@@ -26,6 +27,7 @@ const defaultResult: Paginated<Opportunity> = {
 };
 
 export function RadarPage() {
+  const { t } = useI18n();
   const [result, setResult] = useState(defaultResult);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -40,6 +42,8 @@ export function RadarPage() {
   const page = Math.max(1, Number(routeParams.get("page") ?? 1) || 1);
   const query = routeParams.get("query") ?? "";
   const platform = routeParams.get("platform") ?? "";
+  const market = routeParams.get("market") ?? "";
+  const language = routeParams.get("language") ?? "";
   const verdict = routeParams.get("verdict") ?? "";
   const researchStatus = routeParams.get("researchStatus") ?? "";
   const requestedSort = routeParams.get("sortBy") ?? "score";
@@ -78,10 +82,12 @@ export function RadarPage() {
     });
     if (query.trim()) params.set("query", query.trim());
     if (platform) params.set("platform", platform);
+    if (market) params.set("market", market);
+    if (language) params.set("language", language);
     if (verdict) params.set("verdict", verdict);
     if (researchStatus) params.set("researchStatus", researchStatus);
     return `/api/opportunities?${params}`;
-  }, [page, platform, query, researchStatus, sortBy, verdict]);
+  }, [language, market, page, platform, query, researchStatus, sortBy, verdict]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -92,7 +98,7 @@ export function RadarPage() {
         .then(setResult)
         .catch((caught) => {
           if (caught instanceof DOMException && caught.name === "AbortError") return;
-          setError(caught instanceof Error ? caught.message : "读取失败");
+          setError(caught instanceof Error ? caught.message : t("读取失败", "Failed to load"));
         })
         .finally(() => setLoading(false));
     }, query ? 220 : 0);
@@ -104,15 +110,15 @@ export function RadarPage() {
 
   useEffect(() => {
     if (batchJob?.status === "COMPLETED") {
-      setBatchMessage("后台批量调研已完成，候选列表已更新。");
+      setBatchMessage(t("后台批量调研已完成，候选列表已更新。", "Background batch research is complete and the list has been updated."));
       setBatchError("");
       setRefreshVersion((value) => value + 1);
     } else if (batchJob?.status === "PARTIAL") {
-      setBatchMessage("后台批量调研已完成，但有部分候选失败；成功结果已经更新。");
-      setBatchError(batchJob.error || "部分候选调研失败");
+      setBatchMessage(t("后台批量调研已完成，但有部分候选失败；成功结果已经更新。", "Batch research finished with some failures; successful results were saved."));
+      setBatchError(batchJob.error || t("部分候选调研失败", "Some candidates failed"));
       setRefreshVersion((value) => value + 1);
     } else if (batchJob?.status === "FAILED") {
-      setBatchError(batchJob.error || "后台批量调研失败");
+      setBatchError(batchJob.error || t("后台批量调研失败", "Background batch research failed"));
     }
   }, [batchJob]);
 
@@ -132,18 +138,21 @@ export function RadarPage() {
       if ("queued" in result) {
         setBatchJobId(result.jobId);
         setBatchMessage(
-          "已启动低成本后台批量调研，页面会持续跟踪到任务完成。",
+          t("已启动低成本后台批量调研，页面会持续跟踪到任务完成。", "Low-cost batch research has started and this page will track it to completion."),
         );
         return;
       }
       setBatchMessage(
         result.requested === 0
-          ? "所有候选数据都在新鲜期内，本次没有调用付费数据。"
-          : `已用低成本批量模式检查 ${result.requested} 个候选：${result.researched} 个重新评分，${result.unchanged} 个数据无明显变化，${result.failed} 个失败。`,
+          ? t("所有候选数据都在新鲜期内，本次没有调用付费数据。", "All candidate data is still fresh; no paid data was requested.")
+          : t(
+              `已用低成本批量模式检查 ${result.requested} 个候选：${result.researched} 个重新评分，${result.unchanged} 个数据无明显变化，${result.failed} 个失败。`,
+              `Low-cost batch mode checked ${result.requested} candidates: ${result.researched} rescored, ${result.unchanged} unchanged, ${result.failed} failed.`,
+            ),
       );
       setRefreshVersion((value) => value + 1);
     } catch (caught) {
-      setBatchError(caught instanceof Error ? caught.message : "批量更新失败");
+      setBatchError(caught instanceof Error ? caught.message : t("批量更新失败", "Batch update failed"));
     } finally {
       setBatchUpdating(false);
     }
@@ -164,20 +173,44 @@ export function RadarPage() {
               updateRoute({ query: event.target.value, page: null });
             }}
             maxLength={120}
-            placeholder="搜索候选、用户或问题…"
-            aria-label="搜索雷达库"
+            placeholder={t("搜索候选、用户或问题…", "Search candidates, users, or problems…")}
+            aria-label={t("搜索雷达库", "Search opportunity library")}
           />
         </div>
         <div className="filter-group">
           <SlidersHorizontal size={16} />
           <select
+            value={market}
+            onChange={(event) => {
+              updateRoute({ market: event.target.value, page: null });
+            }}
+            aria-label={t("按市场筛选", "Filter by market")}
+          >
+            <option value="">{t("全部市场", "All markets")}</option>
+            <option value="CN">{t("中国市场", "China")}</option>
+            <option value="US">{t("海外英语市场", "English-speaking market")}</option>
+          </select>
+          <select
+            value={language}
+            onChange={(event) => {
+              updateRoute({ language: event.target.value, page: null });
+            }}
+            aria-label={t("按原始语言筛选", "Filter by original language")}
+          >
+            <option value="">{t("全部来源语言", "All source languages")}</option>
+            <option value="zh-CN">{t("中文来源", "Chinese source")}</option>
+            <option value="en">{t("英文来源", "English source")}</option>
+            <option value="mixed">{t("中英混合来源", "Mixed-language source")}</option>
+            <option value="und">{t("未识别语言", "Unknown language")}</option>
+          </select>
+          <select
             value={platform}
             onChange={(event) => {
               updateRoute({ platform: event.target.value, page: null });
             }}
-            aria-label="按平台筛选"
+            aria-label={t("按平台筛选", "Filter by platform")}
           >
-            <option value="">全部平台</option>
+            <option value="">{t("全部平台", "All platforms")}</option>
             <option value="WEB">Web</option>
             <option value="IOS">iOS</option>
             <option value="WEB_AND_IOS">Web + iOS</option>
@@ -187,39 +220,39 @@ export function RadarPage() {
             onChange={(event) => {
               updateRoute({ verdict: event.target.value, page: null });
             }}
-            aria-label="按结论筛选"
+            aria-label={t("按结论筛选", "Filter by decision")}
           >
-            <option value="">全部结论</option>
-            <option value="BUILD_NOW">现在开发</option>
-            <option value="VALIDATE_FIRST">先验证</option>
-            <option value="WATCH">继续观察</option>
-            <option value="SKIP">暂不开发</option>
+            <option value="">{t("全部结论", "All decisions")}</option>
+            <option value="BUILD_NOW">{t("现在开发", "Build now")}</option>
+            <option value="VALIDATE_FIRST">{t("先验证", "Validate first")}</option>
+            <option value="WATCH">{t("继续观察", "Watch")}</option>
+            <option value="SKIP">{t("暂不开发", "Skip")}</option>
           </select>
           <select
             value={researchStatus}
             onChange={(event) => {
               updateRoute({ researchStatus: event.target.value, page: null });
             }}
-            aria-label="按调研状态筛选"
+            aria-label={t("按调研状态筛选", "Filter by research status")}
           >
-            <option value="">全部调研状态</option>
-            <option value="UNRESEARCHED">待调研</option>
-            <option value="RUNNING">调研中</option>
-            <option value="READY">结论有效</option>
-            <option value="FAILED">调研失败</option>
+            <option value="">{t("全部调研状态", "All research states")}</option>
+            <option value="UNRESEARCHED">{t("待调研", "Not researched")}</option>
+            <option value="RUNNING">{t("调研中", "Researching")}</option>
+            <option value="READY">{t("结论有效", "Decision current")}</option>
+            <option value="FAILED">{t("调研失败", "Research failed")}</option>
           </select>
           <select
             value={sortBy}
             onChange={(event) => {
               updateRoute({ sortBy: event.target.value === "score" ? null : event.target.value, page: null });
             }}
-            aria-label="排序方式"
+            aria-label={t("排序方式", "Sort order")}
           >
-            <option value="score">评分从高到低</option>
-            <option value="scoreDelta">最近涨分最多</option>
-            <option value="confidence">置信度最高</option>
-            <option value="updatedAt">最近更新</option>
-            <option value="name">名称 A–Z</option>
+            <option value="score">{t("评分从高到低", "Highest score")}</option>
+            <option value="scoreDelta">{t("最近涨分最多", "Largest recent gain")}</option>
+            <option value="confidence">{t("置信度最高", "Highest confidence")}</option>
+            <option value="updatedAt">{t("最近更新", "Recently updated")}</option>
+            <option value="name">{t("名称 A–Z", "Name A–Z")}</option>
           </select>
         </div>
         <button
@@ -228,7 +261,7 @@ export function RadarPage() {
           disabled={batchUpdating || batchJob?.status === "RUNNING"}
         >
           <RefreshCw className={batchUpdating || batchJob?.status === "RUNNING" ? "spin" : ""} size={16} />
-          {batchUpdating || batchJob?.status === "RUNNING" ? "批量更新中…" : "更新到期数据"}
+          {batchUpdating || batchJob?.status === "RUNNING" ? t("批量更新中…", "Updating…") : t("更新到期数据", "Update due data")}
         </button>
       </section>
       {batchMessage && <div className="form-success batch-message" role="status">{batchMessage}</div>}
@@ -238,17 +271,17 @@ export function RadarPage() {
           className="text-button batch-job-link"
           onClick={() => navigate(`/operations?job=${batchJobId}`)}
         >
-          查看任务 {batchJobId.slice(0, 8)}
+          {t("查看任务", "View job")} {batchJobId.slice(0, 8)}
         </button>
       )}
 
       <section className="table-panel">
         <header className="table-panel__header">
           <div>
-            <span className="eyebrow">ALL OPPORTUNITIES</span>
-            <h2>{result.total} 个候选产品</h2>
+            <span className="eyebrow">{t("全部候选", "ALL OPPORTUNITIES")}</span>
+            <h2>{result.total} {t("个候选产品", "product candidates")}</h2>
           </div>
-          <span className="table-hint">通过“下一步”进入调研或执行处理</span>
+          <span className="table-hint">{t("通过“下一步”进入调研或执行处理", "Use “Next step” to research or act on a candidate")}</span>
         </header>
         {error ? (
           <ErrorState message={error} />
@@ -260,13 +293,13 @@ export function RadarPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>评分</th>
-                    <th>机会</th>
-                    <th>判断</th>
-                    <th>平台</th>
-                    <th>变化</th>
-                    <th>置信度</th>
-                    <th>下一步</th>
+                    <th>{t("评分", "Score")}</th>
+                    <th>{t("机会", "Opportunity")}</th>
+                    <th>{t("判断", "Decision")}</th>
+                    <th>{t("平台", "Platform")}</th>
+                    <th>{t("变化", "Change")}</th>
+                    <th>{t("置信度", "Confidence")}</th>
+                    <th>{t("下一步", "Next step")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -286,14 +319,14 @@ export function RadarPage() {
             </div>
             <footer className="pagination">
               <span>
-                第 {result.page} / {result.totalPages} 页 · 共 {result.total} 条
+                {t("第", "Page")} {result.page} / {result.totalPages} {t("页 · 共", "·")} {result.total} {t("条", "items")}
               </span>
               <div>
                 <button
                   className="icon-button"
                   disabled={page <= 1}
                   onClick={() => updateRoute({ page: page - 1 }, false)}
-                  aria-label="上一页"
+                  aria-label={t("上一页", "Previous page")}
                 >
                   <ChevronLeft size={18} />
                 </button>
@@ -301,7 +334,7 @@ export function RadarPage() {
                   className="icon-button"
                   disabled={page >= result.totalPages}
                   onClick={() => updateRoute({ page: page + 1 }, false)}
-                  aria-label="下一页"
+                  aria-label={t("下一页", "Next page")}
                 >
                   <ChevronRight size={18} />
                 </button>
@@ -310,11 +343,11 @@ export function RadarPage() {
           </>
         ) : (
           <EmptyState
-            title="没有符合条件的候选"
-            description="放宽筛选条件，或者把一条新信号转成候选。"
+            title={t("没有符合条件的候选", "No matching candidates")}
+            description={t("放宽筛选条件，或者把一条新信号转成候选。", "Relax the filters or turn a new signal into a candidate.")}
             action={
               <button className="button button--secondary" onClick={resetFilters}>
-                清除筛选
+                {t("清除筛选", "Clear filters")}
               </button>
             }
           />

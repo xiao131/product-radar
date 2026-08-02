@@ -5,6 +5,7 @@ import { mapEvidence } from "./mappers.js";
 import { RetryableProviderError, withRetry } from "./retry.js";
 import { UsageLedger } from "./usage.js";
 import type { EvidenceItem, Opportunity } from "../shared/types.js";
+import { languageFromMarket } from "../shared/localization.js";
 
 export interface ResearchDataProvider {
   readonly mode: "DEMO" | "REAL";
@@ -1453,11 +1454,11 @@ export function persistEvidence(db: RadarDatabase, evidence: EvidenceItem[]) {
     INSERT INTO evidence_items (
       id, opportunity_id, category, source_name, source_url, metric, value, unit,
       direction, strength, summary, raw_excerpt, collected_at, freshness_days,
-      fingerprint, market
+      fingerprint, market, original_language, translations_json
     ) VALUES (
       @id, @opportunityId, @category, @sourceName, @sourceUrl, @metric, @value, @unit,
       @direction, @strength, @summary, @rawExcerpt, @collectedAt, @freshnessDays,
-      @fingerprint, @market
+      @fingerprint, @market, @originalLanguage, @translationsJson
     )
     ON CONFLICT(opportunity_id, fingerprint) WHERE fingerprint IS NOT NULL
     DO UPDATE SET
@@ -1473,7 +1474,9 @@ export function persistEvidence(db: RadarDatabase, evidence: EvidenceItem[]) {
       raw_excerpt = excluded.raw_excerpt,
       collected_at = excluded.collected_at,
       freshness_days = excluded.freshness_days,
-      market = excluded.market
+      market = excluded.market,
+      original_language = excluded.original_language,
+      translations_json = excluded.translations_json
   `);
   const insert = db.transaction((items: EvidenceItem[]) => {
     items.forEach((item) =>
@@ -1481,6 +1484,10 @@ export function persistEvidence(db: RadarDatabase, evidence: EvidenceItem[]) {
         ...item,
         fingerprint: item.fingerprint ?? null,
         market: item.market ?? null,
+        originalLanguage:
+          item.originalLanguage ??
+          languageFromMarket(item.market, item.rawExcerpt, item.summary),
+        translationsJson: JSON.stringify(item.translations ?? {}),
       }),
     );
   });

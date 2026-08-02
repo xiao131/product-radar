@@ -173,6 +173,72 @@ const opportunities: Array<{
   },
 ];
 
+const englishOpportunityCopy: Record<
+  string,
+  { oneLiner: string; targetUser: string; changeSummary: string }
+> = {
+  "Screenshot Redactor": {
+    oneLiner: "Detect and redact names, email addresses, locations, and private chat details before sharing a screenshot.",
+    targetUser: "Creators, support teams, and product teams that regularly share screenshots publicly",
+    changeSummary: "Privacy complaints increased, while existing tools still require several manual steps.",
+  },
+  "Receipt Vault": {
+    oneLiner: "An offline receipt scanner, archive, and tax export tool for freelancers.",
+    targetUser: "Freelancers and micro studios",
+    changeSummary: "New reviews explicitly show willingness to pay for a privacy-first, non-subscription option.",
+  },
+  "Metadata Cleaner": {
+    oneLiner: "Remove location, device, and author metadata from photos and documents in batches.",
+    targetUser: "Photographers, journalists, and privacy-conscious users",
+    changeSummary: "Search interest has risen for two weeks, but free alternatives make payment validation necessary.",
+  },
+  "CSV Repair Bench": {
+    oneLiner: "Repair encoding, shifted columns, dates, and delimiter problems in CSV files locally in the browser.",
+    targetUser: "Operators, analysts, and non-technical data users",
+    changeSummary: "Demand remains stable; the next question is whether users will pay once rather than subscribe.",
+  },
+  "App Review Miner": {
+    oneLiner: "Aggregate negative reviews from competing apps and surface recurring unresolved pain points.",
+    targetUser: "Independent developers and mobile product managers",
+    changeSummary: "Research demand is clear, but data cost and platform terms still need validation.",
+  },
+  "Focus Walk": {
+    oneLiner: "A lightweight focus app that replaces phone scrolling with short outdoor walking tasks.",
+    targetUser: "Remote workers and people who are easily distracted",
+    changeSummary: "Discussion is growing, but retention and monetization remain unclear.",
+  },
+  "Quiet Invoice": {
+    oneLiner: "A local-first invoice generator with no account requirement and bilingual templates.",
+    targetUser: "Solo service providers who do not want a complex SaaS product",
+    changeSummary: "The need is real, but rising competition lowered the score.",
+  },
+  "Voice Note Triage": {
+    oneLiner: "Organize scattered voice memos into tasks, ideas, and journal entries.",
+    targetUser: "Creators who capture ideas by voice",
+    changeSummary: "The pain exists, but system features and large note apps are covering it quickly.",
+  },
+  "Changelog Lens": {
+    oneLiner: "Monitor competitor changelogs and flag shifts in features, strategy, and pricing.",
+    targetUser: "Small SaaS founders and product leads",
+    changeSummary: "No material new signal appeared in this cycle, so the opportunity remains on watch.",
+  },
+  "Habit Contract": {
+    oneLiner: "A witnessed habit commitment tool that uses light social pressure to improve completion.",
+    targetUser: "People who benefit from external accountability",
+    changeSummary: "Competitor activity increased while willingness to pay remains weak.",
+  },
+  "Meeting Cost Clock": {
+    oneLiner: "Show the live cost of a meeting and generate concise improvement suggestions afterward.",
+    targetUser: "Remote teams with 10–100 people",
+    changeSummary: "The idea is shareable, but payment intent is too weak to justify near-term development.",
+  },
+  "AI Prompt Bookmark": {
+    oneLiner: "Save, tag, and reuse prompts across AI models.",
+    targetUser: "Knowledge workers who use multiple AI tools frequently",
+    changeSummary: "Supply is saturated and native bookmarking is improving, so the opportunity window keeps narrowing.",
+  },
+};
+
 const products = [
   {
     name: "Photo GPS",
@@ -217,6 +283,7 @@ export function seedDemoData(db: Database.Database) {
       demand_score, pain_score, trend_score, willingness_score,
       competition_gap_score, reachability_score, buildability_score,
       founder_fit_score, freshness_score, change_summary,
+      original_language, target_markets_json, localized_content_json,
       created_at, updated_at, last_researched_at
     ) VALUES (
       @id, @name, @oneLiner, @targetUser, @source, @platform,
@@ -224,6 +291,7 @@ export function seedDemoData(db: Database.Database) {
       @demand, @pain, @trend, @willingness,
       @competitionGap, @reachability, @buildability,
       @founderFit, @freshness, @change,
+      'mixed', '["CN","US"]', @localizedContent,
       @createdAt, @updatedAt, @lastResearchedAt
     )
   `);
@@ -284,6 +352,21 @@ export function seedDemoData(db: Database.Database) {
         buildability,
         founderFit,
         freshness,
+        localizedContent: JSON.stringify({
+          "zh-CN": {
+            name: item.name,
+            oneLiner: item.oneLiner,
+            targetUser: item.targetUser,
+            changeSummary: item.change,
+          },
+          en: {
+            name: item.name,
+            oneLiner: englishOpportunityCopy[item.name]?.oneLiner ?? item.oneLiner,
+            targetUser: englishOpportunityCopy[item.name]?.targetUser ?? item.targetUser,
+            changeSummary:
+              englishOpportunityCopy[item.name]?.changeSummary ?? item.change,
+          },
+        }),
         createdAt,
         updatedAt: researchedAt,
         lastResearchedAt: researchedAt,

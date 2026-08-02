@@ -34,6 +34,16 @@ function opportunity(id: string, name: string): Opportunity {
     founderFitScore: 0,
     freshnessScore: 0,
     changeSummary: "",
+    originalLanguage: "en",
+    targetMarkets: ["US"],
+    localizedContent: {
+      en: {
+        name,
+        oneLiner: `${name} one-liner`,
+        targetUser: "Independent developers",
+      },
+    },
+    marketAssessments: [],
     createdAt: "2026-07-30T00:00:00.000Z",
     updatedAt: "2026-07-30T00:00:00.000Z",
     lastResearchedAt: null,

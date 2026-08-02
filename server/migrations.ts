@@ -1,4 +1,9 @@
 import type Database from "better-sqlite3";
+import {
+  detectContentLanguage,
+  languageFromMarket,
+  marketCode,
+} from "../shared/localization.js";
 import { consolidateAutomaticSignalDuplicates } from "./signal-dedupe.js";
 
 interface Migration {
@@ -368,6 +373,165 @@ const migrations: Migration[] = [
              updated_at = ?
          WHERE id = 1 AND username = 'admin' COLLATE NOCASE`,
       ).run(new Date().toISOString());
+    },
+  },
+  {
+    version: 11,
+    name: "bilingual opportunity and market metadata",
+    up(db) {
+      db.exec(`
+        ALTER TABLE opportunities ADD COLUMN original_language TEXT NOT NULL DEFAULT 'und';
+        ALTER TABLE opportunities ADD COLUMN target_markets_json TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE opportunities ADD COLUMN localized_content_json TEXT NOT NULL DEFAULT '{}';
+        ALTER TABLE opportunities ADD COLUMN market_assessments_json TEXT NOT NULL DEFAULT '[]';
+
+        ALTER TABLE signals ADD COLUMN original_language TEXT NOT NULL DEFAULT 'und';
+
+        ALTER TABLE evidence_items ADD COLUMN original_language TEXT NOT NULL DEFAULT 'und';
+        ALTER TABLE evidence_items ADD COLUMN translations_json TEXT NOT NULL DEFAULT '{}';
+
+        CREATE INDEX IF NOT EXISTS idx_opportunity_original_language
+          ON opportunities(original_language);
+      `);
+
+      const signalRows = db
+        .prepare("SELECT id, title, content, market FROM signals")
+        .all() as Array<{
+        id: string;
+        title: string;
+        content: string;
+        market: string | null;
+      }>;
+      const updateSignal = db.prepare(
+        "UPDATE signals SET original_language = ? WHERE id = ?",
+      );
+      for (const row of signalRows) {
+        updateSignal.run(
+          languageFromMarket(row.market, row.title, row.content),
+          row.id,
+        );
+      }
+
+      const opportunityRows = db
+        .prepare("SELECT id, name, one_liner, target_user, change_summary FROM opportunities")
+        .all() as Array<{
+        id: string;
+        name: string;
+        one_liner: string;
+        target_user: string;
+        change_summary: string;
+      }>;
+      const linkedMarkets = db.prepare(
+        `SELECT market FROM signals WHERE opportunity_id = ? AND market IS NOT NULL
+         UNION SELECT market FROM evidence_items WHERE opportunity_id = ? AND market IS NOT NULL`,
+      );
+      const updateOpportunity = db.prepare(
+        `UPDATE opportunities
+         SET original_language = ?, target_markets_json = ?, localized_content_json = ?
+         WHERE id = ?`,
+      );
+      for (const row of opportunityRows) {
+        const language = detectContentLanguage(
+          row.name,
+          row.one_liner,
+          row.target_user,
+        );
+        const locale = language === "en" ? "en" : "zh-CN";
+        const linkedMarketCodes = [
+          ...new Set(
+            (
+              linkedMarkets.all(row.id, row.id) as Array<{ market: string }>
+            )
+              .map((item) => marketCode(item.market))
+              .filter(Boolean),
+          ),
+        ];
+        const markets = linkedMarketCodes.length
+          ? linkedMarketCodes
+          : language === "mixed"
+            ? ["CN", "US"]
+            : [language === "en" ? "US" : "CN"];
+        updateOpportunity.run(
+          language,
+          JSON.stringify(markets),
+          JSON.stringify({
+            [locale]: {
+              name: row.name,
+              oneLiner: row.one_liner,
+              targetUser: row.target_user,
+              changeSummary: row.change_summary,
+            },
+          }),
+          row.id,
+        );
+      }
+
+      const evidenceRows = db
+        .prepare("SELECT id, summary, raw_excerpt, market FROM evidence_items")
+        .all() as Array<{
+        id: string;
+        summary: string;
+        raw_excerpt: string | null;
+        market: string | null;
+      }>;
+      const updateEvidence = db.prepare(
+        "UPDATE evidence_items SET original_language = ? WHERE id = ?",
+      );
+      for (const row of evidenceRows) {
+        updateEvidence.run(
+          languageFromMarket(row.market, row.raw_excerpt, row.summary),
+          row.id,
+        );
+      }
+    },
+  },
+  {
+    version: 12,
+    name: "repair missing opportunity market metadata",
+    up(db) {
+      const opportunityRows = db
+        .prepare(
+          "SELECT id, original_language, target_markets_json FROM opportunities",
+        )
+        .all() as Array<{
+        id: string;
+        original_language: string;
+        target_markets_json: string;
+      }>;
+      const linkedMarkets = db.prepare(
+        `SELECT market FROM signals WHERE opportunity_id = ? AND market IS NOT NULL
+         UNION SELECT market FROM evidence_items WHERE opportunity_id = ? AND market IS NOT NULL`,
+      );
+      const update = db.prepare(
+        "UPDATE opportunities SET target_markets_json = ? WHERE id = ?",
+      );
+      for (const row of opportunityRows) {
+        let current: string[] = [];
+        try {
+          const parsed = JSON.parse(row.target_markets_json) as unknown;
+          current = Array.isArray(parsed)
+            ? parsed.filter((item): item is string => typeof item === "string")
+            : [];
+        } catch {
+          current = [];
+        }
+        if (current.length) continue;
+        const detected = [
+          ...new Set(
+            (
+              linkedMarkets.all(row.id, row.id) as Array<{ market: string }>
+            )
+              .map((item) => marketCode(item.market))
+              .filter(Boolean),
+          ),
+        ];
+        const markets = detected.length
+          ? detected
+          : row.original_language === "mixed"
+            ? ["CN", "US"]
+            : [row.original_language === "en" ? "US" : "CN"];
+        update.run(JSON.stringify(markets), row.id);
+      }
     },
   },
 ];

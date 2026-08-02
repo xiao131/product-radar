@@ -9,10 +9,15 @@ import {
   OpportunityRow,
   PlatformBadge,
 } from "../components";
-import { productStatusLabels } from "../format";
+import {
+  opportunityForLocale,
+  productStatusName,
+  useI18n,
+} from "../i18n";
 import { useNavigate } from "../router";
 
 export function DashboardPage() {
+  const { locale, t } = useI18n();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
   const navigate = useNavigate();
@@ -20,7 +25,7 @@ export function DashboardPage() {
   function load() {
     setError("");
     api<DashboardData>("/api/dashboard").then(setData).catch((caught) => {
-      setError(caught instanceof Error ? caught.message : "读取失败");
+      setError(caught instanceof Error ? caught.message : t("读取失败", "Failed to load"));
     });
   }
 
@@ -30,70 +35,71 @@ export function DashboardPage() {
   if (!data) return <LoadingState />;
 
   const primary = data.topOpportunities[0];
+  const primaryCopy = primary ? opportunityForLocale(primary, locale) : null;
   return (
     <div className="dashboard">
       <section className="decision-hero">
         <div className="decision-hero__main">
           <div className="section-kicker">
             <Target size={15} />
-            <span>NEXT BEST BET</span>
+            <span>{t("下一步最佳选择", "NEXT BEST BET")}</span>
           </div>
           {primary ? (
             <>
               <div className="decision-scoreline">
                 <span className="decision-score">{primary.score}</span>
                 <div>
-                  <span>综合机会分</span>
+                  <span>{t("综合机会分", "Overall opportunity score")}</span>
                   <Delta value={primary.scoreDelta} />
                 </div>
               </div>
-              <h2>{primary.name}</h2>
-              <p className="decision-hero__promise">{primary.oneLiner}</p>
-              <p className="decision-hero__reason">{primary.changeSummary}</p>
+              <h2>{primaryCopy?.name}</h2>
+              <p className="decision-hero__promise">{primaryCopy?.oneLiner}</p>
+              <p className="decision-hero__reason">{primaryCopy?.changeSummary}</p>
               <button
                 className="button button--ink"
                 onClick={() => navigate(`/radar/${primary.id}`)}
               >
-                查看判断依据
+                {t("查看判断依据", "View decision evidence")}
                 <ArrowRight size={16} />
               </button>
             </>
           ) : (
             <>
-              <h2>尚未形成值得开发的结论</h2>
+              <h2>{t("尚未形成值得开发的结论", "No build-worthy decision yet")}</h2>
               <p className="decision-hero__promise">
-                系统会在后台归并采集到的证据，并由 AI 筛选成候选产品。
+                {t("系统会在后台归并采集到的证据，并由 AI 筛选成候选产品。", "The system groups collected evidence in the background and uses AI to form product candidates.")}
               </p>
               <button
                 className="button button--ink"
                 onClick={() => navigate("/operations")}
               >
-                查看处理进度
+                {t("查看处理进度", "View progress")}
                 <ArrowRight size={16} />
               </button>
             </>
           )}
         </div>
         <div className="decision-hero__aside">
-          <span className="eyebrow">RADAR STATUS</span>
+          <span className="eyebrow">{t("雷达状态", "RADAR STATUS")}</span>
           <strong>{data.stats.opportunities}</strong>
-          <p>个候选正在被持续比较</p>
+          <p>{t("个候选正在被持续比较", "candidates under continuous comparison")}</p>
           <div className="hero-stat-grid">
             <div>
               <b>{data.stats.buildNow}</b>
-              <span>现在开发</span>
+              <span>{t("现在开发", "Build now")}</span>
             </div>
             <div>
               <b>{data.stats.liveProducts}</b>
-              <span>已上线产品</span>
+              <span>{t("已上线产品", "Live products")}</span>
             </div>
             <button
               type="button"
               onClick={() => navigate("/radar?researchStatus=UNRESEARCHED")}
-              aria-label={`查看 ${data.stats.unresearched} 个待调研候选`}
+              aria-label={`${t("查看", "View")} ${data.stats.unresearched} ${t("个待调研候选", "unresearched candidates")}`}
             >
               <b>{data.stats.unresearched}</b>
-              <span>待调研候选</span>
+              <span>{t("待调研候选", "Unresearched")}</span>
             </button>
           </div>
         </div>
@@ -103,11 +109,11 @@ export function DashboardPage() {
         <section className="panel">
           <header className="panel__header">
             <div>
-              <span className="eyebrow">PRIORITY QUEUE</span>
-              <h2>值得投入的候选</h2>
+              <span className="eyebrow">{t("优先队列", "PRIORITY QUEUE")}</span>
+              <h2>{t("值得投入的候选", "Candidates worth pursuing")}</h2>
             </div>
             <button className="text-button" onClick={() => navigate("/radar")}>
-              查看全部 <ArrowRight size={14} />
+              {t("查看全部", "View all")} <ArrowRight size={14} />
             </button>
           </header>
           <div className="opportunity-stack">
@@ -125,8 +131,8 @@ export function DashboardPage() {
         <section className="panel panel--dark">
           <header className="panel__header">
             <div>
-              <span className="eyebrow">MOMENTUM</span>
-              <h2>最近涨分</h2>
+              <span className="eyebrow">{t("增长动量", "MOMENTUM")}</span>
+              <h2>{t("最近涨分", "Recent score gains")}</h2>
             </div>
             <Radar size={18} />
           </header>
@@ -135,8 +141,8 @@ export function DashboardPage() {
               <button key={item.id} onClick={() => navigate(`/radar/${item.id}`)}>
                 <span className="mono riser-index">{String(index + 1).padStart(2, "0")}</span>
                 <div>
-                  <strong>{item.name}</strong>
-                  <span>{item.changeSummary}</span>
+                  <strong>{opportunityForLocale(item, locale).name}</strong>
+                  <span>{opportunityForLocale(item, locale).changeSummary}</span>
                 </div>
                 <Delta value={item.scoreDelta} />
               </button>
@@ -148,11 +154,11 @@ export function DashboardPage() {
       <section className="panel">
         <header className="panel__header">
           <div>
-            <span className="eyebrow">PORTFOLIO CONTEXT</span>
-            <h2>已经上线了什么</h2>
+            <span className="eyebrow">{t("产品组合", "PORTFOLIO CONTEXT")}</span>
+            <h2>{t("已经上线了什么", "What is already live")}</h2>
           </div>
           <button className="text-button" onClick={() => navigate("/products")}>
-            管理产品 <ArrowRight size={14} />
+            {t("管理产品", "Manage products")} <ArrowRight size={14} />
           </button>
         </header>
         <div className="product-strip">
@@ -165,15 +171,15 @@ export function DashboardPage() {
               </div>
               <div>
                 <PlatformBadge platform={product.platform} />
-                <small>{productStatusLabels[product.status]}</small>
+                <small>{productStatusName(product.status, locale)}</small>
               </div>
             </button>
           ))}
           <button className="product-strip__signal" onClick={() => navigate("/radar")}>
             <Radar size={18} />
             <div>
-              <strong>继续比较全部候选产品</strong>
-              <span>按评分和最新变化决定下一步</span>
+              <strong>{t("继续比较全部候选产品", "Compare all candidates")}</strong>
+              <span>{t("按评分和最新变化决定下一步", "Use scores and recent changes to decide what comes next")}</span>
             </div>
             <ArrowRight size={15} />
           </button>

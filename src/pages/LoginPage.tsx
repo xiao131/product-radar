@@ -2,12 +2,14 @@ import { LockKeyhole, Radar, ShieldCheck, UserRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import type { AuthSession } from "../../shared/types";
 import { api } from "../api";
+import { LanguageSwitch, useI18n } from "../i18n";
 
 export function LoginPage({
   onAuthenticated,
 }: {
   onAuthenticated: (session: AuthSession) => void;
 }) {
+  const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -24,7 +26,7 @@ export function LoginPage({
       });
       onAuthenticated(session);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "登录失败");
+      setError(caught instanceof Error ? caught.message : t("登录失败", "Sign-in failed"));
     } finally {
       setSubmitting(false);
     }
@@ -32,31 +34,32 @@ export function LoginPage({
 
   return (
     <main className="login-page">
+      <div className="login-language"><LanguageSwitch /></div>
       <section className="login-manifesto">
         <div className="login-brand">
           <span><Radar size={24} /></span>
           <div>
             <strong>PRODUCT RADAR</strong>
-            <small>百站计划 · 决策系统</small>
+            <small>{t("百站计划 · 决策系统", "100-Site Plan · Decision System")}</small>
           </div>
         </div>
         <div className="login-copy">
-          <span className="eyebrow">PRIVATE RESEARCH WORKSPACE</span>
-          <h1>把市场噪音，变成下一步产品决策。</h1>
-          <p>你的信号、API 预算和调研结论只向授权操作者开放。</p>
+          <span className="eyebrow">{t("私有调研工作区", "PRIVATE RESEARCH WORKSPACE")}</span>
+          <h1>{t("把市场噪音，变成下一步产品决策。", "Turn market noise into your next product decision.")}</h1>
+          <p>{t("你的信号、API 预算和调研结论只向授权操作者开放。", "Your signals, API budget, and research conclusions stay private to the authorized operator.")}</p>
         </div>
         <div className="login-proof">
           <ShieldCheck size={18} />
-          <span>HttpOnly 会话 · CSRF 保护 · 费用限额</span>
+          <span>{t("安全会话 · 请求保护 · 费用限额", "Secure session · Request protection · Cost limits")}</span>
         </div>
       </section>
       <section className="login-rail">
         <form onSubmit={submit}>
           <LockKeyhole size={22} />
-          <span className="eyebrow">OPERATOR ACCESS</span>
-          <h2>进入产品雷达</h2>
+          <span className="eyebrow">{t("操作者登录", "OPERATOR ACCESS")}</span>
+          <h2>{t("进入产品雷达", "Enter Product Radar")}</h2>
           <label>
-            账号
+            {t("账号", "Username")}
             <span className="login-input">
               <UserRound size={16} />
               <input
@@ -72,7 +75,7 @@ export function LoginPage({
             </span>
           </label>
           <label>
-            密码
+            {t("密码", "Password")}
             <span className="login-input">
               <LockKeyhole size={16} />
               <input
@@ -91,7 +94,7 @@ export function LoginPage({
             type="submit"
             disabled={submitting}
           >
-            {submitting ? "验证中…" : "安全进入"}
+            {submitting ? t("验证中…", "Signing in…") : t("安全进入", "Sign in securely")}
           </button>
         </form>
       </section>

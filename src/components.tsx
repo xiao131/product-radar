@@ -14,11 +14,12 @@ import type {
   Verdict,
   WorkflowStatus,
 } from "../shared/types";
+import { platformLabels } from "./format";
 import {
-  platformLabels,
-  verdictLabels,
-  workflowStatusLabels,
-} from "./format";
+  marketName,
+  opportunityForLocale,
+  useI18n,
+} from "./i18n";
 
 export function Score({
   value,
@@ -29,8 +30,14 @@ export function Score({
   status?: ResearchStatus;
   size?: "normal" | "large";
 }) {
+  const { t } = useI18n();
   if (status !== "READY") {
-    const label = researchStatusLabels[status];
+    const label: string = {
+      UNRESEARCHED: t("待调研", "Not researched"),
+      RUNNING: t("调研中", "Researching"),
+      FAILED: t("调研失败", "Research failed"),
+      READY: t("结论有效", "Decision current"),
+    }[status];
     return (
       <div
         className={`score score--${size} score--pending`}
@@ -42,7 +49,7 @@ export function Score({
     );
   }
   return (
-    <div className={`score score--${size}`} aria-label={`评分 ${value}`}>
+    <div className={`score score--${size}`} aria-label={`${t("评分", "Score")} ${value}`}>
       <span>{value}</span>
       <small>/100</small>
     </div>
@@ -61,32 +68,47 @@ export function Delta({ value }: { value: number }) {
 }
 
 export function VerdictBadge({ verdict }: { verdict: Verdict }) {
+  const { t } = useI18n();
+  const labels: Record<Verdict, string> = {
+    BUILD_NOW: t("现在开发", "Build now"),
+    VALIDATE_FIRST: t("先验证", "Validate first"),
+    WATCH: t("继续观察", "Watch"),
+    SKIP: t("暂不开发", "Skip"),
+  };
   return (
     <span className={`verdict verdict--${verdict.toLowerCase()}`}>
-      {verdictLabels[verdict]}
+      {labels[verdict]}
     </span>
   );
 }
 
-const researchStatusLabels: Record<ResearchStatus, string> = {
-  UNRESEARCHED: "待调研",
-  RUNNING: "调研中",
-  FAILED: "调研失败",
-  READY: "结论有效",
-};
-
 export function ResearchStatusBadge({ status }: { status: ResearchStatus }) {
+  const { t } = useI18n();
+  const labels: Record<ResearchStatus, string> = {
+    UNRESEARCHED: t("待调研", "Not researched"),
+    RUNNING: t("调研中", "Researching"),
+    FAILED: t("调研失败", "Research failed"),
+    READY: t("结论有效", "Decision current"),
+  };
   return (
     <span className={`research-status research-status--${status.toLowerCase()}`}>
-      {researchStatusLabels[status]}
+      {labels[status]}
     </span>
   );
 }
 
 export function WorkflowStatusBadge({ status }: { status: WorkflowStatus }) {
+  const { t } = useI18n();
+  const labels: Record<WorkflowStatus, string> = {
+    UNDECIDED: t("待决定", "Undecided"),
+    VALIDATING: t("验证中", "Validating"),
+    APPROVED: t("已批准开发", "Approved"),
+    WATCHING: t("观察中", "Watching"),
+    REJECTED: t("已放弃", "Rejected"),
+  };
   return (
     <span className={`workflow-status workflow-status--${status.toLowerCase()}`}>
-      {workflowStatusLabels[status]}
+      {labels[status]}
     </span>
   );
 }
@@ -114,11 +136,12 @@ export function EmptyState({
   );
 }
 
-export function LoadingState({ label = "正在读取雷达数据" }: { label?: string }) {
+export function LoadingState({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="loading-state" role="status" aria-live="polite">
       <LoaderCircle className="spin" size={20} />
-      <span>{label}</span>
+      <span>{label ?? t("正在读取雷达数据", "Loading radar data")}</span>
     </div>
   );
 }
@@ -130,13 +153,14 @@ export function ErrorState({
   message: string;
   retry?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="error-state" role="alert">
-      <strong>这次读取没有成功</strong>
+      <strong>{t("这次读取没有成功", "This request did not succeed")}</strong>
       <span>{message}</span>
       {retry && (
         <button className="button button--secondary button--small" onClick={retry}>
-          重新加载
+          {t("重新加载", "Reload")}
         </button>
       )}
     </div>
@@ -156,6 +180,7 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   const titleId = useId();
   const descriptionId = useId();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -235,11 +260,11 @@ export function Modal({
       >
         <header className="modal__header">
           <div>
-            <span className="eyebrow">ADD TO RADAR</span>
+            <span className="eyebrow">{t("加入雷达", "ADD TO RADAR")}</span>
             <h2 id={titleId}>{title}</h2>
             {subtitle && <p id={descriptionId}>{subtitle}</p>}
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭">
+          <button className="icon-button" onClick={onClose} aria-label={t("关闭", "Close")}>
             <X size={19} />
           </button>
         </header>
@@ -277,23 +302,32 @@ export function OpportunityRow({
   onClick: () => void;
   compact?: boolean;
 }) {
+  const { locale, t } = useI18n();
+  const copy = opportunityForLocale(item, locale);
+  const marketAssessmentMissing = Boolean(
+    item.selectedMarketCode && !item.selectedMarketAssessment,
+  );
+  const score = item.selectedMarketAssessment?.score ?? item.score;
+  const confidence = item.selectedMarketAssessment?.confidence ?? item.confidence;
   if (compact) {
     return (
       <button className="opportunity-compact" onClick={onClick}>
         <Score
-          value={item.score}
-          status={item.decisionCurrent ? "READY" : item.researchStatus}
+          value={score}
+          status={marketAssessmentMissing ? "UNRESEARCHED" : item.decisionCurrent ? "READY" : item.researchStatus}
         />
         <div className="opportunity-compact__body">
-          <strong>{item.name}</strong>
-          <span>{item.oneLiner}</span>
+          <strong>{copy.name}</strong>
+          <span>{copy.oneLiner}</span>
         </div>
         <div className="opportunity-compact__meta">
-          {item.decisionCurrent ? <Delta value={item.scoreDelta} /> : null}
-          {item.decisionCurrent ? (
-            <VerdictBadge verdict={item.verdict} />
+          {item.decisionCurrent && !marketAssessmentMissing ? <Delta value={item.scoreDelta} /> : null}
+          {item.decisionCurrent && !marketAssessmentMissing ? (
+            <VerdictBadge verdict={item.selectedMarketAssessment?.verdict ?? item.verdict} />
           ) : (
-            <ResearchStatusBadge status={item.researchStatus} />
+            <ResearchStatusBadge
+              status={marketAssessmentMissing ? "UNRESEARCHED" : item.researchStatus}
+            />
           )}
         </div>
       </button>
@@ -304,43 +338,58 @@ export function OpportunityRow({
     <tr className="clickable-row">
       <td>
         <Score
-          value={item.score}
-          status={item.decisionCurrent ? "READY" : item.researchStatus}
+          value={score}
+          status={marketAssessmentMissing ? "UNRESEARCHED" : item.decisionCurrent ? "READY" : item.researchStatus}
         />
       </td>
       <td className="opportunity-name">
         <button className="opportunity-name-button" onClick={onClick}>
-          <strong>{item.name}</strong>
-          <span>{item.oneLiner}</span>
+          <strong>{copy.name}</strong>
+          <span>{copy.oneLiner}</span>
+          {copy.name !== item.name && (
+            <small className="opportunity-original-name">
+              {t("原名", "Original")}: {item.name}
+            </small>
+          )}
+          {item.selectedMarketCode && (
+            <small className="opportunity-market-name">
+              {marketName(item.selectedMarketCode, locale)}
+              {marketAssessmentMissing ? ` · ${t("待市场调研", "market research pending")}` : ""}
+            </small>
+          )}
         </button>
       </td>
       <td>
-        {item.decisionCurrent ? (
-          <VerdictBadge verdict={item.verdict} />
+        {item.decisionCurrent && !marketAssessmentMissing ? (
+          <VerdictBadge verdict={item.selectedMarketAssessment?.verdict ?? item.verdict} />
         ) : (
-          <ResearchStatusBadge status={item.researchStatus} />
+          <ResearchStatusBadge
+            status={marketAssessmentMissing ? "UNRESEARCHED" : item.researchStatus}
+          />
         )}
       </td>
       <td>
         <PlatformBadge platform={item.recommendedPlatform} />
       </td>
       <td>
-        {item.decisionCurrent ? <Delta value={item.scoreDelta} /> : <span className="muted">—</span>}
+        {item.decisionCurrent && !marketAssessmentMissing ? <Delta value={item.scoreDelta} /> : <span className="muted">—</span>}
       </td>
       <td className="mono muted">
-        {item.decisionCurrent ? `${item.confidence}%` : "—"}
+        {item.decisionCurrent && !marketAssessmentMissing ? `${confidence}%` : "—"}
       </td>
       <td>
         <button className="button button--secondary button--small" onClick={onClick}>
-          {item.workflowStatus !== "UNDECIDED"
-            ? "查看执行"
+          {marketAssessmentMissing
+            ? t("调研该市场", "Research market")
+            : item.workflowStatus !== "UNDECIDED"
+            ? t("查看执行", "View execution")
             : item.researchStatus === "RUNNING"
-              ? "查看进度"
+              ? t("查看进度", "View progress")
               : item.researchStatus === "FAILED"
-                ? "重试调研"
+                ? t("重试调研", "Retry research")
                 : item.researchStatus === "UNRESEARCHED"
-                  ? "去调研"
-                  : "处理决策"}
+                  ? t("去调研", "Research")
+                  : t("处理决策", "Decide")}
         </button>
       </td>
     </tr>
@@ -356,14 +405,15 @@ export function FormActions({
   onCancel: () => void;
   submitLabel: string;
 }) {
+  const { t } = useI18n();
   return (
     <div className="form-actions">
       <button type="button" className="button button--ghost" onClick={onCancel}>
-        取消
+        {t("取消", "Cancel")}
       </button>
       <button type="submit" className="button button--primary" disabled={saving}>
         {saving && <LoaderCircle className="spin" size={16} />}
-        {saving ? "保存中" : submitLabel}
+        {saving ? t("保存中", "Saving") : submitLabel}
       </button>
     </div>
   );
