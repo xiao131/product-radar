@@ -7,6 +7,7 @@ import {
 import { promisify } from "node:util";
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
+import { MIN_ADMIN_PASSWORD_LENGTH } from "../shared/auth.js";
 import type { AppConfig } from "./config.js";
 import type { RadarDatabase } from "./db.js";
 import { logEvent } from "./logger.js";
@@ -28,7 +29,7 @@ const loginSchema = z.object({
 const accountUpdateSchema = z.object({
   username: usernameSchema,
   currentPassword: z.string().min(1).max(300),
-  newPassword: z.string().min(12).max(300).optional(),
+  newPassword: z.string().min(MIN_ADMIN_PASSWORD_LENGTH).max(300).optional(),
 });
 
 interface SessionPayload {
@@ -88,8 +89,10 @@ function cookies(request: Request) {
 }
 
 export async function hashPassword(password: string) {
-  if (password.length < 12) {
-    throw new Error("生产管理员密码至少需要 12 个字符");
+  if (password.length < MIN_ADMIN_PASSWORD_LENGTH) {
+    throw new Error(
+      `生产管理员密码至少需要 ${MIN_ADMIN_PASSWORD_LENGTH} 个字符`,
+    );
   }
   const salt = randomBytes(16);
   const derived = (await scrypt(password, salt, 64)) as Buffer;

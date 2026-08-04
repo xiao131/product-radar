@@ -89,7 +89,7 @@ describe("production security", () => {
 
   it("updates the administrator credentials and invalidates older sessions", async () => {
     const password = "correct-horse-battery-staple";
-    const newPassword = "new-correct-horse-battery-staple";
+    const newPassword = "new-pass";
     const config = createTestConfig({
       authRequired: true,
       adminUsername: "xx131",
@@ -113,6 +113,17 @@ describe("production security", () => {
 
     const before = await currentAgent.get("/api/auth/account").expect(200);
     expect(before.body).toMatchObject({ configured: true, username: "xx131" });
+
+    await currentAgent
+      .patch("/api/auth/account")
+      .set("Origin", config.publicOrigin)
+      .set("X-CSRF-Token", currentLogin.body.csrfToken)
+      .send({
+        username: "radar.owner",
+        currentPassword: password,
+        newPassword: "1234567",
+      })
+      .expect(400);
 
     const updated = await currentAgent
       .patch("/api/auth/account")
@@ -140,6 +151,12 @@ describe("production security", () => {
       .send({ username: "radar.owner", password: newPassword })
       .expect(200);
     database.close();
+  });
+
+  it("rejects administrator passwords shorter than eight characters", async () => {
+    await expect(hashPassword("1234567")).rejects.toThrow(
+      "生产管理员密码至少需要 8 个字符",
+    );
   });
 });
 
