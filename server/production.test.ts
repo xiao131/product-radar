@@ -180,14 +180,52 @@ describe("production persistence", () => {
 
     migrateDatabase(database);
 
-    const products = database.prepare("SELECT name FROM products ORDER BY name").all() as Array<{ name: string }>;
-    expect(products).toEqual([{ name: "Real Product" }]);
+    const products = database.prepare(
+      `SELECT id, name, status, trashed_at, reclassified_signal_id
+       FROM products ORDER BY name`,
+    ).all() as Array<{
+      id: string;
+      name: string;
+      status: string;
+      trashed_at: string | null;
+      reclassified_signal_id: string | null;
+    }>;
+    expect(products.map((product) => product.name)).toEqual([
+      "Historical TODO",
+      "Real Product",
+      "ScreenNote",
+      "专注与应用时长控制",
+    ]);
+    const activeProduct = products.find((product) => product.name === "Real Product");
+    expect(activeProduct).toMatchObject({
+      status: "LIVE",
+      trashed_at: null,
+      reclassified_signal_id: null,
+    });
+    const correctedProducts = products.filter(
+      (product) => product.name !== "Real Product",
+    );
+    expect(correctedProducts.every((product) => product.trashed_at)).toBe(true);
+    expect(correctedProducts.every((product) => product.reclassified_signal_id)).toBe(true);
+    expect(
+      correctedProducts.find((product) => product.name === "Historical TODO")?.status,
+    ).toBe("ARCHIVED");
     const signals = database.prepare(
-      "SELECT title, status, metrics_json FROM signals WHERE source_name = '产品历史纠错' ORDER BY title",
-    ).all() as Array<{ title: string; status: string; metrics_json: string }>;
+      `SELECT title, status, metrics_json, product_id
+       FROM signals WHERE source_name = '产品历史纠错' ORDER BY title`,
+    ).all() as Array<{
+      title: string;
+      status: string;
+      metrics_json: string;
+      product_id: string | null;
+    }>;
     expect(signals.map((signal) => signal.title)).toEqual(["Historical TODO", "ScreenNote", "专注与应用时长控制"]);
     expect(signals.every((signal) => signal.status === "NEW")).toBe(true);
     expect(signals.every((signal) => JSON.parse(signal.metrics_json)._reclassifiedFromProduct === true)).toBe(true);
+    expect(signals.every((signal) => signal.product_id)).toBe(true);
+    expect(new Set(signals.map((signal) => signal.product_id))).toEqual(
+      new Set(correctedProducts.map((product) => product.id)),
+    );
     database.close();
   });
 

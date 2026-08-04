@@ -569,6 +569,7 @@ const migrations: Migration[] = [
           .filter((row) => row.status === "IDEA" || correctedNames.has(row.name))
           .map((row) => row.id),
       );
+      const correctedSignalIds = new Map<string, string>();
       const migratedAt = new Date().toISOString();
       const insertCorrectedSignal = db.prepare(`
         INSERT INTO signals (
@@ -581,13 +582,15 @@ const migrations: Migration[] = [
       `);
       for (const row of productRows) {
         if (!movedIds.has(row.id)) continue;
+        const signalId = randomUUID();
+        correctedSignalIds.set(row.id, signalId);
         const content = [
           row.description || `${row.name} 是一条历史产品想法。`,
           row.current_focus ? `此前记录的下一步：${row.current_focus}` : "",
           "该记录此前被误放入产品库，现已保留为原始证据，等待重新判断。",
         ].filter(Boolean).join("\n\n");
         insertCorrectedSignal.run(
-          randomUUID(),
+          signalId,
           row.name,
           content,
           row.url,
@@ -636,11 +639,12 @@ const migrations: Migration[] = [
       const insertProduct = db.prepare(`
         INSERT INTO products (
           id, name, platform, status, url, description, current_focus,
-          verification_status, source_opportunity_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          verification_status, source_opportunity_id, trashed_at,
+          reclassified_signal_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const row of productRows) {
-        if (movedIds.has(row.id)) continue;
+        const moved = movedIds.has(row.id);
         const needsReview = /待补充|待确认|待核实/.test(
           `${row.description} ${row.current_focus}`,
         );
@@ -648,14 +652,16 @@ const migrations: Migration[] = [
           row.id,
           row.name,
           row.platform,
-          row.status,
+          row.status === "IDEA" ? "ARCHIVED" : row.status,
           row.url,
           row.description,
           row.current_focus,
-          needsReview ? "NEEDS_REVIEW" : "CONFIRMED",
+          moved || needsReview ? "NEEDS_REVIEW" : "CONFIRMED",
           row.source_opportunity_id,
+          moved ? migratedAt : null,
+          correctedSignalIds.get(row.id) ?? null,
           row.created_at,
-          row.updated_at,
+          moved ? migratedAt : row.updated_at,
         );
       }
       db.exec(`
@@ -669,6 +675,18 @@ const migrations: Migration[] = [
           REFERENCES products(id) ON DELETE SET NULL;
         ALTER TABLE evidence_items ADD COLUMN product_id TEXT
           REFERENCES products(id) ON DELETE SET NULL;
+
+        UPDATE signals
+        SET product_id = (
+          SELECT products.id
+          FROM products
+          WHERE products.reclassified_signal_id = signals.id
+        )
+        WHERE EXISTS (
+          SELECT 1
+          FROM products
+          WHERE products.reclassified_signal_id = signals.id
+        );
 
         CREATE INDEX idx_signals_product ON signals(product_id, updated_at DESC);
         CREATE INDEX idx_evidence_product ON evidence_items(product_id, collected_at DESC);
