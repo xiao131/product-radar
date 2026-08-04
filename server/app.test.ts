@@ -798,7 +798,7 @@ describe("Product Radar API", () => {
       .expect({ imported: 0, skippedDuplicates: 1, totalRows: 1 });
   });
 
-  it("serves UTF-8 CSV templates for both import surfaces", async () => {
+  it("serves valid UTF-8 CSV templates with example rows", async () => {
     const signals = await request(app)
       .get("/api/signals/import/template")
       .expect(200)
@@ -806,6 +806,19 @@ describe("Product Radar API", () => {
       .expect("Content-Disposition", /product-radar-evidence-template\.csv/);
     expect(signals.text.charCodeAt(0)).toBe(0xfeff);
     expect(signals.text).toContain("collected_at,external_id");
+    expect(signals.text).toContain("示例：分享截图前隐藏隐私");
+
+    const signalPreview = await request(app)
+      .post("/api/signals/import/preview")
+      .send({ csv: signals.text })
+      .expect(200);
+    expect(signalPreview.body).toMatchObject({
+      totalRows: 1,
+      validRows: 1,
+      duplicateRows: 0,
+      errorRows: 0,
+      canImport: true,
+    });
 
     const products = await request(app)
       .get("/api/products/import/template")
@@ -814,6 +827,19 @@ describe("Product Radar API", () => {
       .expect("Content-Disposition", /product-radar-products-template\.csv/);
     expect(products.text.charCodeAt(0)).toBe(0xfeff);
     expect(products.text).toContain("name,platform,status");
+    expect(products.text).toContain("示例产品,WEB,IDEA");
+
+    const productPreview = await request(app)
+      .post("/api/products/import/preview")
+      .send({ csv: products.text })
+      .expect(200);
+    expect(productPreview.body).toMatchObject({
+      totalRows: 1,
+      validRows: 1,
+      duplicateRows: 0,
+      errorRows: 0,
+      canImport: true,
+    });
   });
 
   it("bounds opportunity detail history and returns totals", async () => {

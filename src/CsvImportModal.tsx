@@ -221,8 +221,14 @@ export function CsvImportModal({
             <code>{config.optional}</code>
           </div>
           <p>{config.rules}</p>
+          <p>
+            {t(
+              "模板包含一行有效示例；填写时请替换或删除示例数据。",
+              "The template includes one valid example row; replace or remove it before importing.",
+            )}
+          </p>
           <a className="button button--secondary button--small" href={config.templatePath} download>
-            <Download size={15} /> {t("下载空白模板", "Download blank template")}
+            <Download size={15} /> {t("下载示例模板", "Download example template")}
           </a>
         </section>
 

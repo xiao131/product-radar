@@ -129,9 +129,11 @@ const csvImportRequestSchema = z.object({
 });
 
 const signalCsvTemplate =
-  "\uFEFFtitle,content,source_type,source_url,tags,market,original_language,source_name,collected_at,external_id\r\n";
+  "\uFEFFtitle,content,source_type,source_url,tags,market,original_language,source_name,collected_at,external_id\r\n" +
+  '示例：分享截图前隐藏隐私,"每次都要手动遮住姓名、头像",APP_REVIEW,https://example.com/review,privacy;screenshot,CN/zh-CN,zh-CN,App Store,2025-01-15,example-review-001\r\n';
 const productCsvTemplate =
-  "\uFEFFname,platform,status,url,description,current_focus\r\n";
+  "\uFEFFname,platform,status,url,description,current_focus\r\n" +
+  "示例产品,WEB,IDEA,https://example.com/sample-product,帮助用户整理公开信息,验证目标用户是否愿意使用\r\n";
 
 const sortColumns = {
   score: "score",
