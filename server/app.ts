@@ -8,7 +8,15 @@ import {
   createResearchAiProviderOptions,
 } from "./ai.js";
 import { isAiConfigured, type AppConfig } from "./config.js";
-import { parseSignalCsv } from "./csv.js";
+import {
+  analyzeProductCsv,
+  analyzeSignalCsv,
+  productImportKey,
+  signalImportFingerprint,
+  type ImportedProduct,
+  type ImportedSignal,
+  type ParsedCsv,
+} from "./csv.js";
 import type { RadarDatabase } from "./db.js";
 import { logEvent, requestLogger } from "./logger.js";
 import {
@@ -59,6 +67,8 @@ import {
 } from "../shared/schemas.js";
 import type {
   DashboardData,
+  CsvImportPreview,
+  CsvImportPreviewRow,
   EvidenceItem,
   JobRun,
   Opportunity,
@@ -114,6 +124,15 @@ const opportunityDetailQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+const csvImportRequestSchema = z.object({
+  csv: z.string().min(1).max(1_500_000),
+});
+
+const signalCsvTemplate =
+  "\uFEFFtitle,content,source_type,source_url,tags,market,original_language,source_name,collected_at,external_id\r\n";
+const productCsvTemplate =
+  "\uFEFFname,platform,status,url,description,current_focus\r\n";
+
 const sortColumns = {
   score: "score",
   scoreDelta: "score_delta",
@@ -146,6 +165,142 @@ function markPortfolioDependentResearchDue(
          change_summary = '产品组合发生变化，等待重新评估资产复用与个人匹配。',
          updated_at = ?`,
   ).run(changedAt, changedAt);
+}
+
+function sendCsvTemplate(
+  response: Response,
+  filename: string,
+  template: string,
+) {
+  response
+    .status(200)
+    .set({
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    })
+    .send(template);
+}
+
+function csvPreview<T>(
+  kind: CsvImportPreview["kind"],
+  parsed: ParsedCsv<T>,
+  existingKeys: Set<string>,
+  keysForValue: (value: T) => string | string[],
+) {
+  const importable: T[] = [];
+  let duplicateRows = 0;
+  let errorRows = 0;
+  const seen = new Set(existingKeys);
+  const rows = parsed.rows.map((row): CsvImportPreviewRow => {
+    if (!row.value || row.messages.length) {
+      errorRows += 1;
+      return {
+        line: row.line,
+        status: "error",
+        values: row.values,
+        messages: row.messages.length ? row.messages : ["这一行无法导入"],
+      };
+    }
+    const keys = [keysForValue(row.value)].flat();
+    if (keys.some((key) => seen.has(key))) {
+      duplicateRows += 1;
+      return {
+        line: row.line,
+        status: "duplicate",
+        values: row.values,
+        messages: ["已存在相同数据，本行将跳过"],
+      };
+    }
+    keys.forEach((key) => seen.add(key));
+    importable.push(row.value);
+    return {
+      line: row.line,
+      status: "valid",
+      values: row.values,
+      messages: [],
+    };
+  });
+  const preview: CsvImportPreview = {
+    kind,
+    columns: parsed.columns,
+    totalRows: parsed.rows.length,
+    validRows: importable.length,
+    duplicateRows,
+    errorRows,
+    canImport:
+      parsed.issues.length === 0 && errorRows === 0 && importable.length > 0,
+    issues: [
+      ...parsed.issues,
+      ...rows.flatMap((row) =>
+        row.status === "error"
+          ? row.messages.map((message) => ({ line: row.line, message }))
+          : [],
+      ),
+    ],
+    rows: rows.slice(0, 20),
+    truncated: rows.length > 20,
+  };
+  return { preview, importable };
+}
+
+function csvImportError(preview: CsvImportPreview, resource: string) {
+  const issue = preview.issues[0];
+  const row = preview.rows.find((item) => item.status === "error");
+  const detail = issue?.message ?? row?.messages[0] ?? "CSV 包含需要修复的内容";
+  const line = issue?.line ?? row?.line ?? null;
+  return `${line ? `CSV 第 ${line} 行：` : "CSV "}${detail.replace(/^CSV\s*/, "")}；尚未导入任何${resource}`;
+}
+
+function previewSignalImport(db: RadarDatabase, csv: string) {
+  const parsed = analyzeSignalCsv(csv);
+  const existingRows = db
+    .prepare(
+      `SELECT source_type, title, content, source_url, fingerprint
+       FROM signals`,
+    )
+    .all() as Array<{
+      source_type: string;
+      title: string;
+      content: string;
+      source_url: string | null;
+      fingerprint: string | null;
+    }>;
+  const existingKeys = new Set<string>();
+  for (const row of existingRows) {
+    if (row.fingerprint) existingKeys.add(row.fingerprint);
+    existingKeys.add(signalImportFingerprint({
+      sourceType: row.source_type,
+      title: row.title,
+      content: row.content,
+      sourceUrl: row.source_url,
+    }));
+  }
+  return csvPreview(
+    "signals",
+    parsed,
+    existingKeys,
+    (signal: ImportedSignal) => [
+      signal.fingerprint,
+      signal.contentFingerprint,
+    ],
+  );
+}
+
+function previewProductImport(db: RadarDatabase, csv: string) {
+  const parsed = analyzeProductCsv(csv);
+  const existingRows = db
+    .prepare("SELECT name, platform, url FROM products")
+    .all() as Array<{ name: string; platform: string; url: string | null }>;
+  const existingKeys = new Set(
+    existingRows.map((product) => productImportKey(product)),
+  );
+  return csvPreview(
+    "products",
+    parsed,
+    existingKeys,
+    (product: ImportedProduct) => productImportKey(product),
+  );
 }
 
 function toSqlUpdates(
@@ -1280,6 +1435,65 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     );
   });
 
+  app.get("/api/products/import/template", (_request, response) => {
+    sendCsvTemplate(
+      response,
+      "product-radar-products-template.csv",
+      productCsvTemplate,
+    );
+  });
+
+  app.post("/api/products/import/preview", (request, response) => {
+    const { csv } = csvImportRequestSchema.parse(request.body);
+    response.json(previewProductImport(db, csv).preview);
+  });
+
+  app.post("/api/products/import", (request, response) => {
+    const { csv } = csvImportRequestSchema.parse(request.body);
+    const result = db.transaction(() => {
+      const analyzed = previewProductImport(db, csv);
+      if (analyzed.preview.issues.length || analyzed.preview.errorRows) {
+        return { analyzed, imported: 0 };
+      }
+      const changedAt = now();
+      const statement = db.prepare(`
+        INSERT INTO products (
+          id, name, platform, status, url, description, current_focus,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const product of analyzed.importable) {
+        statement.run(
+          randomUUID(),
+          product.name,
+          product.platform,
+          product.status,
+          product.url,
+          product.description,
+          product.currentFocus,
+          changedAt,
+          changedAt,
+        );
+      }
+      if (analyzed.importable.length) {
+        markPortfolioDependentResearchDue(db, changedAt);
+      }
+      return { analyzed, imported: analyzed.importable.length };
+    })();
+    if (result.analyzed.preview.issues.length || result.analyzed.preview.errorRows) {
+      response.status(400).json({
+        error: csvImportError(result.analyzed.preview, "产品"),
+        details: result.analyzed.preview,
+      });
+      return;
+    }
+    response.status(201).json({
+      imported: result.imported,
+      skippedDuplicates: result.analyzed.preview.duplicateRows,
+      totalRows: result.analyzed.preview.totalRows,
+    });
+  });
+
   app.post("/api/products", (request, response) => {
     const input = createProductSchema.parse(request.body);
     const product: Product = {
@@ -1467,34 +1681,70 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     response.status(201).json(signal);
   });
 
+  app.get("/api/signals/import/template", (_request, response) => {
+    sendCsvTemplate(
+      response,
+      "product-radar-evidence-template.csv",
+      signalCsvTemplate,
+    );
+  });
+
+  app.post("/api/signals/import/preview", (request, response) => {
+    const { csv } = csvImportRequestSchema.parse(request.body);
+    response.json(previewSignalImport(db, csv).preview);
+  });
+
   app.post("/api/signals/import", (request, response) => {
-    const csv = z.object({ csv: z.string().min(1).max(1_500_000) }).parse(request.body).csv;
-    const imported = parseSignalCsv(csv);
-    const createdAt = now();
-    const statement = db.prepare(`
-      INSERT INTO signals (
-        id, source_type, title, content, source_url, tags_json, status,
-        opportunity_id, original_language, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'NEW', NULL, ?, ?, ?)
-    `);
-    const insert = db.transaction(() =>
-      imported.map((signal) => {
-        const id = randomUUID();
+    const { csv } = csvImportRequestSchema.parse(request.body);
+    const result = db.transaction(() => {
+      const analyzed = previewSignalImport(db, csv);
+      if (analyzed.preview.issues.length || analyzed.preview.errorRows) {
+        return { analyzed, imported: 0 };
+      }
+      const importedAt = now();
+      const statement = db.prepare(`
+        INSERT INTO signals (
+          id, source_type, title, content, source_url, tags_json, status,
+          opportunity_id, fingerprint, market, original_language, source_name,
+          metrics_json, created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, 'NEW', NULL, ?, ?, ?, ?, ?, ?, ?
+        )
+      `);
+      for (const signal of analyzed.importable) {
         statement.run(
-          id,
+          randomUUID(),
           signal.sourceType,
           signal.title,
           signal.content,
           signal.sourceUrl,
           JSON.stringify(signal.tags),
-          detectContentLanguage(signal.title, signal.content),
-          createdAt,
-          createdAt,
+          signal.fingerprint,
+          signal.market,
+          signal.originalLanguage,
+          signal.sourceName,
+          JSON.stringify({
+            _importSource: "csv",
+            ...(signal.externalId ? { _externalId: signal.externalId } : {}),
+          }),
+          signal.collectedAt ?? importedAt,
+          importedAt,
         );
-        return { ...signal, id };
-      }),
-    );
-    response.status(201).json({ imported: insert().length });
+      }
+      return { analyzed, imported: analyzed.importable.length };
+    })();
+    if (result.analyzed.preview.issues.length || result.analyzed.preview.errorRows) {
+      response.status(400).json({
+        error: csvImportError(result.analyzed.preview, "证据"),
+        details: result.analyzed.preview,
+      });
+      return;
+    }
+    response.status(201).json({
+      imported: result.imported,
+      skippedDuplicates: result.analyzed.preview.duplicateRows,
+      totalRows: result.analyzed.preview.totalRows,
+    });
   });
 
   app.post("/api/signals/:id/link", (request, response) => {

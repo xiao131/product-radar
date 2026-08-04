@@ -1,8 +1,9 @@
-import { ExternalLink, Pencil, Plus, Radar } from "lucide-react";
+import { ExternalLink, FileUp, Pencil, Plus, Radar } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Product } from "../../shared/types";
+import type { CsvImportResult, Product } from "../../shared/types";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, Modal, PlatformBadge } from "../components";
+import { CsvImportModal } from "../CsvImportModal";
 import { ProductForm } from "../forms";
 import { formatDate, productStatusName, useI18n } from "../i18n";
 import { useNavigate } from "../router";
@@ -13,6 +14,7 @@ export function ProductsPage() {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
   const navigate = useNavigate();
 
@@ -31,6 +33,14 @@ export function ProductsPage() {
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
+  function importedCsv(result: CsvImportResult) {
+    setFeedback(t(
+      `已导入 ${result.imported} 个产品${result.skippedDuplicates ? `，跳过 ${result.skippedDuplicates} 个重复产品` : ""}。`,
+      `Imported ${result.imported} products${result.skippedDuplicates ? `; skipped ${result.skippedDuplicates} duplicates` : ""}.`,
+    ));
+    load();
+  }
+
   if (error) return <ErrorState message={error} retry={load} />;
   if (!products) return <LoadingState label={t("正在读取产品库", "Loading product library")} />;
 
@@ -42,9 +52,14 @@ export function ProductsPage() {
           <h2>{t("推荐不应该脱离你已经做过的产品", "Recommendations should reflect what you have already built")}</h2>
           <p>{t("产品库会成为后续 AI 判断个人匹配度、复用资产和避免重复建设的上下文。", "The product library gives AI context for founder fit, asset reuse, and avoiding duplicate work.")}</p>
         </div>
-        <button className="button button--primary" onClick={() => setCreating(true)}>
-          <Plus size={16} /> {t("添加产品", "Add product")}
-        </button>
+        <div className="context-banner__actions">
+          <button className="button button--secondary" onClick={() => setImportOpen(true)}>
+            <FileUp size={16} /> {t("导入 CSV", "Import CSV")}
+          </button>
+          <button className="button button--primary" onClick={() => setCreating(true)}>
+            <Plus size={16} /> {t("添加产品", "Add product")}
+          </button>
+        </div>
       </section>
 
       {products.length ? (
@@ -130,6 +145,12 @@ export function ProductsPage() {
           }}
         />
       </Modal>
+      <CsvImportModal
+        kind="products"
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={importedCsv}
+      />
       {feedback && (
         <div className="toast-inline" role="status" aria-live="polite">
           {feedback}

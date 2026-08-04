@@ -172,12 +172,14 @@ export function Modal({
   subtitle,
   open,
   onClose,
+  size = "default",
   children,
 }: {
   title: string;
   subtitle?: string;
   open: boolean;
   onClose: () => void;
+  size?: "default" | "wide";
   children: ReactNode;
 }) {
   const { t } = useI18n();
@@ -251,7 +253,7 @@ export function Modal({
     >
       <div
         ref={modalRef}
-        className="modal"
+        className={`modal ${size === "wide" ? "modal--wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

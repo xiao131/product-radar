@@ -7,8 +7,9 @@ import {
   Link2,
   Plus,
 } from "lucide-react";
-import { type ChangeEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
+  CsvImportResult,
   Opportunity,
   OpportunityOption,
   Signal,
@@ -16,6 +17,7 @@ import type {
 } from "../../shared/types";
 import { api } from "../api";
 import { EmptyState, ErrorState, LoadingState, Modal } from "../components";
+import { CsvImportModal } from "../CsvImportModal";
 import { SignalForm } from "../forms";
 import {
   formatDate,
@@ -49,7 +51,7 @@ export function SignalsPage() {
   const [actionMessage, setActionMessage] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [processing, setProcessing] = useState("");
-  const [importing, setImporting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [linkingSignal, setLinkingSignal] = useState<Signal | null>(null);
   const [opportunityOptions, setOpportunityOptions] = useState<
     OpportunityOption[]
@@ -130,26 +132,14 @@ export function SignalsPage() {
     }
   }
 
-  async function importCsv(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setImporting(true);
+  function importedCsv(result: CsvImportResult) {
     setActionError("");
-    setActionMessage("");
-    try {
-      const csv = await file.text();
-      const result = await api<{ imported: number }>("/api/signals/import", {
-        method: "POST",
-        body: JSON.stringify({ csv }),
-      });
-      setActionMessage(t(`已导入 ${result.imported} 条证据。`, `Imported ${result.imported} evidence items.`));
-      load();
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : t("导入失败", "Import failed"));
-    } finally {
-      setImporting(false);
-      event.target.value = "";
-    }
+    setActionMessage(t(
+      `已导入 ${result.imported} 条证据${result.skippedDuplicates ? `，跳过 ${result.skippedDuplicates} 条重复数据` : ""}。`,
+      `Imported ${result.imported} evidence items${result.skippedDuplicates ? `; skipped ${result.skippedDuplicates} duplicates` : ""}.`,
+    ));
+    if (page === 1) load();
+    else setPage(1);
   }
 
   if (error) return <ErrorState message={error} retry={load} />;
@@ -166,26 +156,16 @@ export function SignalsPage() {
           </p>
         </div>
         <div>
-          <label
-            className={`button button--secondary file-button ${importing ? "file-button--disabled" : ""}`}
-            aria-disabled={importing}
-          >
-            <input
-              className="visually-hidden"
-              type="file"
-              accept=".csv,text/csv"
-              onChange={importCsv}
-              disabled={importing}
-            />
-            <FileUp size={16} /> {importing ? t("导入中…", "Importing…") : t("导入 CSV", "Import CSV")}
-          </label>
+          <button className="button button--secondary" onClick={() => setImportOpen(true)}>
+            <FileUp size={16} /> {t("导入 CSV", "Import CSV")}
+          </button>
           <button className="button button--primary" onClick={() => setModalOpen(true)}>
             <Plus size={16} /> {t("添加信号", "Add signal")}
           </button>
         </div>
       </section>
       <p className="csv-hint">
-        {t("CSV 支持列", "CSV columns")}: <code>title, content, source_type, source_url, tags</code>{t("，tags 用分号分隔。", "; separate tags with semicolons.")}
+        {t("支持批量预检、重复跳过和错误报告；导入窗口内可下载空白模板。", "Validate rows, skip duplicates, and download an error report; a blank template is available in the import dialog.")}
       </p>
       <section className="signal-activity" aria-live="polite">
         <span><strong>{signals.total}</strong> {t("条原始证据", "raw evidence items")}</span>
@@ -394,6 +374,12 @@ export function SignalsPage() {
           </div>
         </div>
       </Modal>
+      <CsvImportModal
+        kind="signals"
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={importedCsv}
+      />
     </div>
   );
 }

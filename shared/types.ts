@@ -296,6 +296,41 @@ export interface Product {
   updatedAt: string;
 }
 
+export type CsvImportKind = "signals" | "products";
+export type CsvImportRowStatus = "valid" | "duplicate" | "error";
+
+export interface CsvImportIssue {
+  line: number | null;
+  field?: string;
+  message: string;
+}
+
+export interface CsvImportPreviewRow {
+  line: number;
+  status: CsvImportRowStatus;
+  values: Record<string, string>;
+  messages: string[];
+}
+
+export interface CsvImportPreview {
+  kind: CsvImportKind;
+  columns: string[];
+  totalRows: number;
+  validRows: number;
+  duplicateRows: number;
+  errorRows: number;
+  canImport: boolean;
+  issues: CsvImportIssue[];
+  rows: CsvImportPreviewRow[];
+  truncated: boolean;
+}
+
+export interface CsvImportResult {
+  imported: number;
+  skippedDuplicates: number;
+  totalRows: number;
+}
+
 export interface OpportunityPromotionResponse {
   product: Product;
   created: boolean;

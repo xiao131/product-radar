@@ -458,12 +458,15 @@ npm run localize:content
 
 ## CSV 导入格式
 
-信号收件箱支持 CSV 文件。
+「原始证据」和「我的产品」都支持 CSV。导入窗口会先完成格式校验、重复检测和前
+20 行预览；存在错误时不会写入任何数据，并可下载错误报告。两个页面都可以直接
+下载带 UTF-8 BOM 的空白模板，兼容 Excel 和 WPS 的中文显示。
+
+### 原始证据
 
 ```csv
-title,content,source_type,source_url,tags
-分享截图前隐藏隐私,每次都要手动遮住姓名和头像,APP_REVIEW,https://example.com/review,privacy;screenshot
-日历没有可用时间视图,我想看到真正可用的两小时空档,REDDIT,https://example.com/post,calendar;productivity
+title,content,source_type,source_url,tags,market,original_language,source_name,collected_at,external_id
+分享截图前隐藏隐私,"每次都要手动遮住姓名、头像",APP_REVIEW,https://example.com/review,privacy;screenshot,CN/zh-CN,zh-CN,App Store,2026-08-03,review-123
 ```
 
 字段：
@@ -475,6 +478,11 @@ title,content,source_type,source_url,tags
 | `source_type` | 否 | 信号来源 |
 | `source_url` | 否 | 原始链接 |
 | `tags` | 否 | 使用分号分隔 |
+| `market` | 否 | 例如 `CN/zh-CN`、`US/en` |
+| `original_language` | 否 | `zh-CN`、`en`、`mixed`、`und`；留空自动识别 |
+| `source_name` | 否 | 具体来源名称 |
+| `collected_at` | 否 | 原始采集日期，支持 `YYYY-MM-DD` 或 ISO 8601；留空使用导入时间 |
+| `external_id` | 否 | 外部系统中的稳定 ID，用于重复导入去重 |
 
 可用的 `source_type`：
 
@@ -490,6 +498,21 @@ FORUM
 CUSTOMER
 OTHER
 ```
+
+如果没有 `external_id`，系统会用来源类型、链接、标题和原文生成稳定指纹。重复行和
+库中已有证据会在预检中标记，并在导入时跳过。
+
+### 我的产品
+
+```csv
+name,platform,status,url,description,current_focus
+Photo GPS,IOS,LIVE,https://example.com/photo-gps,查看与清除照片定位信息,优化商店截图与英文关键词
+```
+
+`name`、`platform` 必填；`platform` 支持 `WEB`、`IOS`、`WEB_AND_IOS`。
+`status` 留空时默认为 `LIVE`，也可以使用 `IDEA`、`BUILDING`、`LIVE`、
+`PAUSED`、`ARCHIVED`。产品优先按 URL 去重；URL 为空时按名称和平台去重，已有
+产品不会被 CSV 覆盖。
 
 ## 评分与判断模型
 
@@ -618,6 +641,9 @@ researchStatus
 |---|---|---|
 | `GET` | `/api/products` | 产品列表 |
 | `POST` | `/api/products` | 添加产品 |
+| `GET` | `/api/products/import/template` | 下载产品 CSV 模板 |
+| `POST` | `/api/products/import/preview` | 预检产品 CSV |
+| `POST` | `/api/products/import` | 导入产品 CSV |
 | `PATCH` | `/api/products/:id` | 更新产品 |
 
 ### 信号
@@ -626,6 +652,8 @@ researchStatus
 |---|---|---|
 | `GET` | `/api/signals` | 信号列表 |
 | `POST` | `/api/signals` | 添加信号 |
+| `GET` | `/api/signals/import/template` | 下载证据 CSV 模板 |
+| `POST` | `/api/signals/import/preview` | 预检证据 CSV |
 | `POST` | `/api/signals/import` | 导入 CSV |
 | `POST` | `/api/signals/:id/process` | 信号转候选 |
 | `POST` | `/api/signals/:id/link` | 把信号作为证据关联到已有候选 |

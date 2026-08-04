@@ -158,6 +158,60 @@ describe("Product Radar API", () => {
     expect(response.body).toHaveLength(4);
   });
 
+  it("previews and imports products while skipping existing portfolio rows", async () => {
+    const csv = [
+      "name,platform,status,url,description,current_focus",
+      "Tiny CSV,WEB,LIVE,https://example.com/tiny-csv,Duplicate,Should skip",
+      "Focus Atlas,WEB_AND_IOS,BUILDING,https://example.com/focus-atlas,Planning workspace,Validate team demand",
+    ].join("\n");
+
+    const preview = await request(app)
+      .post("/api/products/import/preview")
+      .send({ csv })
+      .expect(200);
+    expect(preview.body).toMatchObject({
+      kind: "products",
+      totalRows: 2,
+      validRows: 1,
+      duplicateRows: 1,
+      errorRows: 0,
+      canImport: true,
+    });
+
+    await request(app)
+      .post("/api/products/import")
+      .send({ csv })
+      .expect(201)
+      .expect({ imported: 1, skippedDuplicates: 1, totalRows: 2 });
+
+    const products = await request(app).get("/api/products").expect(200);
+    expect(products.body).toHaveLength(4);
+    expect(products.body[0]).toMatchObject({
+      name: "Focus Atlas",
+      platform: "WEB_AND_IOS",
+      status: "BUILDING",
+      currentFocus: "Validate team demand",
+    });
+  });
+
+  it("keeps product CSV imports atomic when any row is invalid", async () => {
+    const before = await request(app).get("/api/products").expect(200);
+    const response = await request(app)
+      .post("/api/products/import")
+      .send({
+        csv: [
+          "name,platform,status",
+          "Valid Product,WEB,LIVE",
+          "Broken Product,DESKTOP,LIVE",
+        ].join("\n"),
+      })
+      .expect(400);
+    expect(response.body.error).toContain("CSV 第 3 行");
+    expect(response.body.details.errorRows).toBe(1);
+    const after = await request(app).get("/api/products").expect(200);
+    expect(after.body).toHaveLength(before.body.length);
+  });
+
   it("updates manual workflow state without changing the AI decision", async () => {
     const candidate = (
       await request(app).get("/api/opportunities").expect(200)
@@ -643,7 +697,7 @@ describe("Product Radar API", () => {
         ].join("\n"),
       })
       .expect(201)
-      .expect({ imported: 2 });
+      .expect({ imported: 2, skippedDuplicates: 0, totalRows: 2 });
 
     const signals = await request(app).get("/api/signals").expect(200);
     expect(signals.body).toHaveLength(5);
@@ -665,7 +719,7 @@ describe("Product Radar API", () => {
       .post("/api/signals/import")
       .send({ csv })
       .expect(201)
-      .expect({ imported: 3 });
+      .expect({ imported: 3, skippedDuplicates: 0, totalRows: 3 });
 
     const signals = await request(app).get("/api/signals").expect(200);
     const imported = signals.body.slice(0, 3);
@@ -692,6 +746,74 @@ describe("Product Radar API", () => {
       })
       .expect(400);
     expect(unsafe.body.error).toContain("CSV 第 2 行");
+  });
+
+  it("imports extended signal metadata and skips repeated external ids", async () => {
+    const csv = [
+      "title,content,source_type,source_url,tags,market,original_language,source_name,collected_at,external_id",
+      '"Privacy export pain","Names and avatars must be hidden",APP_REVIEW,https://example.com/review/42,"privacy;screenshot",CN/zh-CN,en,App Store,2025-06-15,review-42',
+    ].join("\n");
+
+    const preview = await request(app)
+      .post("/api/signals/import/preview")
+      .send({ csv })
+      .expect(200);
+    expect(preview.body).toMatchObject({
+      validRows: 1,
+      duplicateRows: 0,
+      errorRows: 0,
+      canImport: true,
+    });
+
+    await request(app)
+      .post("/api/signals/import")
+      .send({ csv })
+      .expect(201)
+      .expect({ imported: 1, skippedDuplicates: 0, totalRows: 1 });
+
+    const row = database
+      .prepare(
+        `SELECT market, original_language, source_name, created_at, updated_at,
+                fingerprint, metrics_json
+         FROM signals WHERE title = ?`,
+      )
+      .get("Privacy export pain") as Record<string, string>;
+    expect(row).toMatchObject({
+      market: "CN/zh-CN",
+      original_language: "en",
+      source_name: "App Store",
+      created_at: "2025-06-15T00:00:00.000Z",
+    });
+    expect(row.updated_at).not.toBe(row.created_at);
+    expect(row.fingerprint).toHaveLength(64);
+    expect(JSON.parse(row.metrics_json)).toMatchObject({
+      _importSource: "csv",
+      _externalId: "review-42",
+    });
+
+    await request(app)
+      .post("/api/signals/import")
+      .send({ csv })
+      .expect(201)
+      .expect({ imported: 0, skippedDuplicates: 1, totalRows: 1 });
+  });
+
+  it("serves UTF-8 CSV templates for both import surfaces", async () => {
+    const signals = await request(app)
+      .get("/api/signals/import/template")
+      .expect(200)
+      .expect("Content-Type", /text\/csv/)
+      .expect("Content-Disposition", /product-radar-evidence-template\.csv/);
+    expect(signals.text.charCodeAt(0)).toBe(0xfeff);
+    expect(signals.text).toContain("collected_at,external_id");
+
+    const products = await request(app)
+      .get("/api/products/import/template")
+      .expect(200)
+      .expect("Content-Type", /text\/csv/)
+      .expect("Content-Disposition", /product-radar-products-template\.csv/);
+    expect(products.text.charCodeAt(0)).toBe(0xfeff);
+    expect(products.text).toContain("name,platform,status");
   });
 
   it("bounds opportunity detail history and returns totals", async () => {
