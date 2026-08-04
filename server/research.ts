@@ -1075,7 +1075,10 @@ export async function researchOpportunity(
       .all(opportunityId) as Record<string, unknown>[];
     const evidence = evidenceRows.map(mapEvidence);
     const products = (
-      db.prepare("SELECT * FROM products WHERE status != 'ARCHIVED'").all() as Record<
+      db.prepare(
+        `SELECT * FROM products
+         WHERE trashed_at IS NULL AND verification_status = 'CONFIRMED'`,
+      ).all() as Record<
         string,
         unknown
       >[]

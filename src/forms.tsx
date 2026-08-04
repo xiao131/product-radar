@@ -139,6 +139,7 @@ export function ProductForm({
             url: data.get("url"),
             description: data.get("description"),
             currentFocus: data.get("currentFocus"),
+            verificationStatus: data.get("verificationStatus"),
           }),
         },
       );
@@ -157,7 +158,8 @@ export function ProductForm({
       </Field>
       <div className="form-row">
         <Field label={t("平台", "Platform")}>
-          <select name="platform" defaultValue={product?.platform ?? "WEB"}>
+          <select name="platform" defaultValue={product?.platform ?? "UNKNOWN"}>
+            <option value="UNKNOWN">{t("待确认", "Unknown")}</option>
             <option value="WEB">Web</option>
             <option value="IOS">iOS</option>
             <option value="WEB_AND_IOS">Web + iOS</option>
@@ -165,7 +167,6 @@ export function ProductForm({
         </Field>
         <Field label={t("状态", "Status")}>
           <select name="status" defaultValue={product?.status ?? "LIVE"}>
-            <option value="IDEA">{t("想法", "Idea")}</option>
             <option value="BUILDING">{t("开发中", "Building")}</option>
             <option value="LIVE">{t("已上线", "Live")}</option>
             <option value="PAUSED">{t("暂停", "Paused")}</option>
@@ -173,6 +174,15 @@ export function ProductForm({
           </select>
         </Field>
       </div>
+      <Field
+        label={t("资料可信度", "Verification")}
+        hint={t("待核实产品不会参与 AI 的资产复用和个人匹配判断。", "Products awaiting review are excluded from AI portfolio-fit context.")}
+      >
+        <select name="verificationStatus" defaultValue={product?.verificationStatus ?? "CONFIRMED"}>
+          <option value="CONFIRMED">{t("已确认", "Confirmed")}</option>
+          <option value="NEEDS_REVIEW">{t("待核实", "Needs review")}</option>
+        </select>
+      </Field>
       <Field label={t("产品说明", "Product description")}>
         <textarea
           name="description"

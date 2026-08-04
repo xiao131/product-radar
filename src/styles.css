@@ -18,6 +18,322 @@
   --red: #a63d2f;
 }
 
+/* Product lifecycle loop */
+.product-view-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 12px;
+}
+
+.product-view-tabs .filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  color: #626863;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.filter-chip--active {
+  color: var(--forest);
+  background: var(--forest-light);
+  border-color: #9fb5a5;
+}
+
+.product-name-button {
+  width: max-content;
+  max-width: 100%;
+  padding: 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.product-name-button:hover,
+.product-name-button:focus-visible {
+  color: var(--forest);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.product-inline-meta,
+.product-detail-badges,
+.product-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.product-inline-meta > span:not(.verification-badge) {
+  color: #8b4c32;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+}
+
+.verification-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  gap: 4px;
+  padding: 3px 7px;
+  color: var(--forest);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  background: var(--forest-light);
+  border: 1px solid #b5c8ba;
+}
+
+.verification-badge--review {
+  color: #8b4c32;
+  background: var(--orange-light);
+  border-color: #dfb49f;
+}
+
+.product-row-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.product-table--lifecycle .product-table__row {
+  grid-template-columns: minmax(220px, 1.3fr) 90px 86px minmax(130px, 0.8fr) 100px 124px;
+  gap: 12px;
+}
+
+.product-row-actions .button {
+  white-space: nowrap;
+}
+
+.product-detail-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.product-detail-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 28px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+
+.product-detail-hero h1 {
+  margin: 5px 0 8px;
+  font-size: clamp(30px, 5vw, 54px);
+  line-height: 0.95;
+}
+
+.product-detail-hero p {
+  max-width: 760px;
+  margin: 0 0 16px;
+  color: #656b66;
+  font-size: 16px;
+}
+
+.product-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+  gap: 18px;
+}
+
+.product-detail-grid > main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detail-section {
+  padding: 24px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+
+.detail-section h2 {
+  margin: 4px 0 10px;
+}
+
+.detail-section > p {
+  color: #656b66;
+  font-size: 15px;
+}
+
+.detail-section > small {
+  color: #7b817c;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.section-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.section-heading-row h2 {
+  margin: 4px 0 0;
+}
+
+.product-related-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.product-related-list > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.product-related-list > button > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.product-related-list > button span {
+  color: #727873;
+  font-size: 12px;
+}
+
+.product-detail-actions {
+  position: sticky;
+  top: 18px;
+}
+
+.product-detail-actions .action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.action-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #6f7570;
+  font-size: 12px;
+}
+
+.danger-text {
+  color: #a33c2e;
+}
+
+.warning-note,
+.product-trash-summary {
+  padding: 12px;
+  color: #7c3f2d;
+  background: var(--orange-light);
+  border-color: #dfb49f;
+}
+
+@media (max-width: 1200px) {
+  .product-table--lifecycle {
+    display: grid;
+    gap: 12px;
+    overflow: visible;
+  }
+
+  .product-table--lifecycle .product-table__head {
+    display: none;
+  }
+
+  .product-table--lifecycle .product-table__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-width: 0;
+    gap: 12px 18px;
+    padding: 18px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+  }
+
+  .product-table--lifecycle .product-cell {
+    grid-column: 1 / -1;
+  }
+
+  .product-table--lifecycle .product-table__row > div[data-label],
+  .product-table--lifecycle .product-table__row > p[data-label] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0;
+  }
+
+  .product-table--lifecycle [data-label]::before {
+    content: attr(data-label);
+    color: #777d78;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+
+  .product-table--lifecycle .product-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding-top: 4px;
+  }
+}
+
+@media (max-width: 900px) {
+  .product-detail-hero,
+  .section-heading-row {
+    flex-direction: column;
+  }
+
+  .product-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-detail-actions {
+    position: static;
+  }
+}
+
+@media (max-width: 620px) {
+  .product-table--lifecycle .product-table__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-table--lifecycle .product-table__row > div[data-label],
+  .product-table--lifecycle .product-table__row > p[data-label] {
+    grid-column: 1;
+  }
+
+  .product-detail-hero,
+  .detail-section {
+    padding: 18px;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

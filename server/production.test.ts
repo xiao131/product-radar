@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import request from "supertest";
 import { NoObjectGeneratedError } from "ai";
 import { afterEach, describe, expect, it } from "vitest";
@@ -161,6 +162,35 @@ describe("production security", () => {
 });
 
 describe("production persistence", () => {
+  it("reclassifies legacy ideas and the six confirmed mistaken products during migration", () => {
+    const database = new Database(":memory:");
+    database.pragma("foreign_keys = ON");
+    migrateDatabase(database, 12);
+    const createdAt = new Date().toISOString();
+    const insert = database.prepare(`
+      INSERT INTO products (
+        id, name, platform, status, url, description, current_focus,
+        source_opportunity_id, created_at, updated_at
+      ) VALUES (?, ?, 'WEB', ?, NULL, ?, '', NULL, ?, ?)
+    `);
+    insert.run(crypto.randomUUID(), "Historical TODO", "IDEA", "An undeveloped idea", createdAt, createdAt);
+    insert.run(crypto.randomUUID(), "ScreenNote", "LIVE", "This was never developed", createdAt, createdAt);
+    insert.run(crypto.randomUUID(), "专注与应用时长控制", "ARCHIVED", "A rejected candidate", createdAt, createdAt);
+    insert.run(crypto.randomUUID(), "Real Product", "LIVE", "A confirmed live product", createdAt, createdAt);
+
+    migrateDatabase(database);
+
+    const products = database.prepare("SELECT name FROM products ORDER BY name").all() as Array<{ name: string }>;
+    expect(products).toEqual([{ name: "Real Product" }]);
+    const signals = database.prepare(
+      "SELECT title, status, metrics_json FROM signals WHERE source_name = '产品历史纠错' ORDER BY title",
+    ).all() as Array<{ title: string; status: string; metrics_json: string }>;
+    expect(signals.map((signal) => signal.title)).toEqual(["Historical TODO", "ScreenNote", "专注与应用时长控制"]);
+    expect(signals.every((signal) => signal.status === "NEW")).toBe(true);
+    expect(signals.every((signal) => JSON.parse(signal.metrics_json)._reclassifiedFromProduct === true)).toBe(true);
+    database.close();
+  });
+
   it("renames the legacy default administrator account", () => {
     const database = createDatabase(":memory:", {
       seedDemoData: false,

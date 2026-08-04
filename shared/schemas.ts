@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const platformSchema = z.enum(["WEB", "IOS", "WEB_AND_IOS"]);
+export const productPlatformSchema = z.enum(["UNKNOWN", "WEB", "IOS", "WEB_AND_IOS"]);
+export const productStatusSchema = z.enum(["BUILDING", "LIVE", "PAUSED", "ARCHIVED"]);
+export const productVerificationStatusSchema = z.enum(["CONFIRMED", "NEEDS_REVIEW"]);
 export const verdictSchema = z.enum(["BUILD_NOW", "VALIDATE_FIRST", "WATCH", "SKIP"]);
 export const workflowStatusSchema = z.enum([
   "UNDECIDED",
@@ -42,11 +45,12 @@ export const signalSourceSchema = z.enum([
 
 export const createProductSchema = z.object({
   name: z.string().trim().min(2).max(100),
-  platform: platformSchema,
-  status: z.enum(["IDEA", "BUILDING", "LIVE", "PAUSED", "ARCHIVED"]).default("LIVE"),
+  platform: productPlatformSchema,
+  status: productStatusSchema.default("LIVE"),
   url: optionalHttpUrlSchema.optional(),
   description: z.string().trim().max(600).default(""),
   currentFocus: z.string().trim().max(300).default(""),
+  verificationStatus: productVerificationStatusSchema.default("CONFIRMED"),
 });
 
 export const updateProductSchema = createProductSchema.partial();
@@ -90,6 +94,33 @@ export const opportunityWorkflowUpdateSchema = z.object({
 
 export const linkSignalSchema = z.object({
   opportunityId: z.string().uuid(),
+});
+
+export const productFeedbackSchema = z.object({
+  title: z.string().trim().min(2).max(140),
+  content: z.string().trim().min(3).max(10_000),
+  sourceUrl: optionalHttpUrlSchema.optional(),
+  opportunityId: z.string().uuid().optional(),
+});
+
+export const productResearchCandidateSchema = z.object({
+  name: z.string().trim().min(2).max(140),
+  oneLiner: z.string().trim().min(3).max(500),
+  targetUser: z.string().trim().min(2).max(300),
+  recommendedPlatform: platformSchema,
+});
+
+export const reclassifyProductSchema = z.object({
+  title: z.string().trim().min(2).max(140).optional(),
+  content: z.string().trim().min(3).max(10_000).optional(),
+});
+
+export const linkProductSchema = z.object({
+  productId: z.string().uuid(),
+});
+
+export const mergeProductSchema = z.object({
+  targetProductId: z.string().uuid(),
 });
 
 export const dimensionScoreSchema = z.object({

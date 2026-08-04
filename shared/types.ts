@@ -1,4 +1,8 @@
 export type Platform = "WEB" | "IOS" | "WEB_AND_IOS";
+export type ProductPlatform = Platform | "UNKNOWN";
+export type ProductStatus = "BUILDING" | "LIVE" | "PAUSED" | "ARCHIVED";
+export type ProductVerificationStatus = "CONFIRMED" | "NEEDS_REVIEW";
+export type ProductOpportunityRelation = "ORIGIN" | "RESEARCH" | "EXISTING";
 export type UiLocale = "zh-CN" | "en";
 export type ContentLanguage = UiLocale | "mixed" | "und";
 export type Verdict = "BUILD_NOW" | "VALIDATE_FIRST" | "WATCH" | "SKIP";
@@ -136,6 +140,7 @@ export interface Opportunity {
 export interface EvidenceItem {
   id: string;
   opportunityId: string;
+  productId?: string | null;
   category:
     | "SEARCH"
     | "TREND"
@@ -260,6 +265,7 @@ export interface BatchResearchResult {
 export interface OpportunityDetail {
   opportunity: Opportunity;
   linkedProduct: Product | null;
+  linkedProducts: Product[];
   reportEvidence: EvidenceItem[];
   evidence: EvidenceItem[];
   reports: ResearchReport[];
@@ -286,14 +292,38 @@ export interface JobRun {
 export interface Product {
   id: string;
   name: string;
-  platform: Platform;
-  status: "IDEA" | "BUILDING" | "LIVE" | "PAUSED" | "ARCHIVED";
+  platform: ProductPlatform;
+  status: ProductStatus;
   url: string | null;
   description: string;
   currentFocus: string;
+  verificationStatus: ProductVerificationStatus;
   sourceOpportunityId: string | null;
+  trashedAt: string | null;
+  reclassifiedSignalId: string | null;
+  mergedIntoProductId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProductOpportunityLink {
+  opportunity: Opportunity;
+  relationType: ProductOpportunityRelation;
+  createdAt: string;
+}
+
+export interface ProductDependencies {
+  candidateLinks: number;
+  feedbackSignals: number;
+  evidenceItems: number;
+}
+
+export interface ProductDetail {
+  product: Product;
+  relatedOpportunities: ProductOpportunityLink[];
+  dependencies: ProductDependencies;
+  reclassifiedSignal: Signal | null;
+  mergedIntoProduct: Product | null;
 }
 
 export type CsvImportKind = "signals" | "products";
@@ -345,6 +375,7 @@ export interface Signal {
   tags: string[];
   status: SignalStatus;
   opportunityId: string | null;
+  productId?: string | null;
   fingerprint?: string | null;
   market?: string | null;
   originalLanguage?: ContentLanguage;

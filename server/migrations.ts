@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import {
   detectContentLanguage,
@@ -534,9 +535,170 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 13,
+    name: "product lifecycle feedback and recoverable correction",
+    up(db) {
+      const correctedNames = new Set([
+        "ScreenNote",
+        "Tick List",
+        "Pick Color",
+        "DOCX Viewer",
+        "Image Compressor",
+        "Photo Cleaner",
+        "家庭防骗助手 / 家庭数字安全服务",
+        "iPhone 自动记账 / AI 个人财务助手",
+        "专注与应用时长控制",
+      ]);
+      const productRows = db
+        .prepare("SELECT * FROM products")
+        .all() as Array<{
+        id: string;
+        name: string;
+        platform: string;
+        status: string;
+        url: string | null;
+        description: string;
+        current_focus: string;
+        source_opportunity_id: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      const movedIds = new Set(
+        productRows
+          .filter((row) => row.status === "IDEA" || correctedNames.has(row.name))
+          .map((row) => row.id),
+      );
+      const migratedAt = new Date().toISOString();
+      const insertCorrectedSignal = db.prepare(`
+        INSERT INTO signals (
+          id, source_type, title, content, source_url, tags_json, status,
+          opportunity_id, fingerprint, source_name, metrics_json,
+          original_language, created_at, updated_at
+        ) VALUES (
+          ?, 'IDEA', ?, ?, ?, ?, 'NEW', NULL, ?, '产品历史纠错', ?, ?, ?, ?
+        )
+      `);
+      for (const row of productRows) {
+        if (!movedIds.has(row.id)) continue;
+        const content = [
+          row.description || `${row.name} 是一条历史产品想法。`,
+          row.current_focus ? `此前记录的下一步：${row.current_focus}` : "",
+          "该记录此前被误放入产品库，现已保留为原始证据，等待重新判断。",
+        ].filter(Boolean).join("\n\n");
+        insertCorrectedSignal.run(
+          randomUUID(),
+          row.name,
+          content,
+          row.url,
+          JSON.stringify(["产品纠错", "历史导入"]),
+          `reclassified-product:${row.id}`,
+          JSON.stringify({
+            _reclassifiedFromProduct: true,
+            _productSnapshot: {
+              id: row.id,
+              name: row.name,
+              platform: row.platform,
+              status: row.status,
+              description: row.description,
+              currentFocus: row.current_focus,
+              createdAt: row.created_at,
+            },
+          }),
+          detectContentLanguage(row.name, content),
+          row.created_at,
+          migratedAt,
+        );
+      }
+
+      db.exec(`
+        DROP INDEX IF EXISTS idx_product_source_opportunity;
+        ALTER TABLE products RENAME TO products_v12;
+
+        CREATE TABLE products (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          platform TEXT NOT NULL CHECK (platform IN ('UNKNOWN', 'WEB', 'IOS', 'WEB_AND_IOS')),
+          status TEXT NOT NULL CHECK (status IN ('BUILDING', 'LIVE', 'PAUSED', 'ARCHIVED')),
+          url TEXT,
+          description TEXT NOT NULL DEFAULT '',
+          current_focus TEXT NOT NULL DEFAULT '',
+          verification_status TEXT NOT NULL DEFAULT 'CONFIRMED'
+            CHECK (verification_status IN ('CONFIRMED', 'NEEDS_REVIEW')),
+          source_opportunity_id TEXT REFERENCES opportunities(id) ON DELETE SET NULL,
+          trashed_at TEXT,
+          reclassified_signal_id TEXT REFERENCES signals(id) ON DELETE SET NULL,
+          merged_into_product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const insertProduct = db.prepare(`
+        INSERT INTO products (
+          id, name, platform, status, url, description, current_focus,
+          verification_status, source_opportunity_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of productRows) {
+        if (movedIds.has(row.id)) continue;
+        const needsReview = /待补充|待确认|待核实/.test(
+          `${row.description} ${row.current_focus}`,
+        );
+        insertProduct.run(
+          row.id,
+          row.name,
+          row.platform,
+          row.status,
+          row.url,
+          row.description,
+          row.current_focus,
+          needsReview ? "NEEDS_REVIEW" : "CONFIRMED",
+          row.source_opportunity_id,
+          row.created_at,
+          row.updated_at,
+        );
+      }
+      db.exec(`
+        DROP TABLE products_v12;
+        CREATE UNIQUE INDEX idx_product_source_opportunity
+          ON products(source_opportunity_id)
+          WHERE source_opportunity_id IS NOT NULL;
+        CREATE INDEX idx_products_trashed ON products(trashed_at, updated_at DESC);
+
+        ALTER TABLE signals ADD COLUMN product_id TEXT
+          REFERENCES products(id) ON DELETE SET NULL;
+        ALTER TABLE evidence_items ADD COLUMN product_id TEXT
+          REFERENCES products(id) ON DELETE SET NULL;
+
+        CREATE INDEX idx_signals_product ON signals(product_id, updated_at DESC);
+        CREATE INDEX idx_evidence_product ON evidence_items(product_id, collected_at DESC);
+
+        CREATE TABLE product_opportunity_links (
+          product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          opportunity_id TEXT NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+          relation_type TEXT NOT NULL
+            CHECK (relation_type IN ('ORIGIN', 'RESEARCH', 'EXISTING')),
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (product_id, opportunity_id)
+        );
+        CREATE INDEX idx_product_opportunity_candidate
+          ON product_opportunity_links(opportunity_id, created_at DESC);
+
+        INSERT OR IGNORE INTO product_opportunity_links (
+          product_id, opportunity_id, relation_type, created_at
+        )
+        SELECT id, source_opportunity_id, 'ORIGIN', created_at
+        FROM products
+        WHERE source_opportunity_id IS NOT NULL;
+      `);
+    },
+  },
 ];
 
-export function migrateDatabase(db: Database.Database) {
+export function migrateDatabase(
+  db: Database.Database,
+  targetVersion = Number.POSITIVE_INFINITY,
+) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -553,6 +715,7 @@ export function migrateDatabase(db: Database.Database) {
   );
 
   for (const migration of migrations) {
+    if (migration.version > targetVersion) continue;
     if (applied.has(migration.version)) continue;
     db.transaction(() => {
       migration.up(db);

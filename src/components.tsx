@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { ArrowDown, ArrowUp, LoaderCircle, X } from "lucide-react";
 import type {
   Opportunity,
-  Platform,
+  ProductPlatform,
   ResearchStatus,
   Verdict,
   WorkflowStatus,
@@ -113,7 +113,7 @@ export function WorkflowStatusBadge({ status }: { status: WorkflowStatus }) {
   );
 }
 
-export function PlatformBadge({ platform }: { platform: Platform }) {
+export function PlatformBadge({ platform }: { platform: ProductPlatform }) {
   return <span className="platform-badge">{platformLabels[platform]}</span>;
 }
 
