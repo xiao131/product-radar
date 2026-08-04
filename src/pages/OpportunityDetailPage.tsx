@@ -5,6 +5,7 @@ import {
   CircleAlert,
   ExternalLink,
   LoaderCircle,
+  Link2,
   Pencil,
   PackagePlus,
   RefreshCw,
@@ -17,6 +18,7 @@ import type {
   OpportunityDetail,
   OpportunityPromotionResponse,
   OpportunityResearchResponse,
+  Product,
   WorkflowStatus,
 } from "../../shared/types";
 import { api, dataForSeoBudgetConfirmation } from "../api";
@@ -93,6 +95,9 @@ export function OpportunityDetailPage() {
   const [editing, setEditing] = useState(false);
   const [workflowSaving, setWorkflowSaving] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [linkProductOpen, setLinkProductOpen] = useState(false);
+  const [productOptions, setProductOptions] = useState<Product[]>([]);
+  const [linkingProduct, setLinkingProduct] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [originalEvidence, setOriginalEvidence] = useState<Set<string>>(
@@ -249,7 +254,13 @@ export function OpportunityDetailPage() {
         `/api/opportunities/${id}/promote`,
         { method: "POST" },
       );
-      setDetail((current) => current ? { ...current, linkedProduct: result.product } : current);
+      setDetail((current) => current ? {
+        ...current,
+        linkedProduct: result.product,
+        linkedProducts: current.linkedProducts.some((product) => product.id === result.product.id)
+          ? current.linkedProducts
+          : [result.product, ...current.linkedProducts],
+      } : current);
       setActionMessage(
         result.created
           ? t("已转成“我的产品”，并保留与候选调研档案的来源关系。", "The candidate was added to My Products with its research history linked.")
@@ -263,12 +274,50 @@ export function OpportunityDetailPage() {
     }
   }
 
+  async function openLinkProduct() {
+    setActionError("");
+    try {
+      const products = await api<Product[]>("/api/products?trash=active");
+      setProductOptions(products.filter((product) => !detail?.linkedProducts.some((linked) => linked.id === product.id)));
+      setLinkProductOpen(true);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : t("产品读取失败", "Failed to load products"));
+    }
+  }
+
+  async function linkExistingProduct(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!id) return;
+    const data = new FormData(event.currentTarget);
+    setLinkingProduct(true);
+    setActionError("");
+    try {
+      const product = await api<Product>(`/api/opportunities/${id}/products`, {
+        method: "POST",
+        body: JSON.stringify({ productId: data.get("productId") }),
+      });
+      setDetail((current) => current ? {
+        ...current,
+        linkedProducts: current.linkedProducts.some((item) => item.id === product.id)
+          ? current.linkedProducts
+          : [product, ...current.linkedProducts],
+      } : current);
+      setLinkProductOpen(false);
+      setActionMessage(t("已关联现有产品，没有创建重复产品。", "Existing product linked without creating a duplicate."));
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : t("产品关联失败", "Failed to link product"));
+    } finally {
+      setLinkingProduct(false);
+    }
+  }
+
   if (error) return <ErrorState message={error} retry={() => load()} />;
   if (!detail) return <LoadingState label={t("正在读取完整调研档案", "Loading the complete research record")} />;
 
   const {
     opportunity,
     linkedProduct,
+    linkedProducts,
     evidence,
     reportEvidence,
     reports,
@@ -304,6 +353,7 @@ export function OpportunityDetailPage() {
         ? { label: t("加入观察", "Add to watchlist"), status: "WATCHING" as const }
         : { label: t("标记放弃", "Mark as rejected"), status: "REJECTED" as const };
   const workflowBusy = workflowSaving || promoting;
+  const primaryLinkedProduct = linkedProduct ?? linkedProducts[0] ?? null;
   const stageItems = [
     { label: t("候选", "Candidate"), detail: t("已进入雷达", "Added to radar"), state: "complete" },
     {
@@ -505,6 +555,7 @@ export function OpportunityDetailPage() {
                     <div className="evidence__kind">
                       <span>{categoryLabels[item.category]}</span>
                       <small>{item.sourceName}</small>
+                      {item.productId && <button className="text-button" onClick={() => navigate(`/products/${item.productId}`)}>{t("查看产品", "View product")}</button>}
                     </div>
                     <div className="evidence__body">
                       <strong>{summary}</strong>
@@ -556,6 +607,7 @@ export function OpportunityDetailPage() {
                     <div className="evidence__kind">
                       <span>{categoryLabels[item.category]}</span>
                       <small>{item.sourceName}</small>
+                      {item.productId && <button className="text-button" onClick={() => navigate(`/products/${item.productId}`)}>{t("查看产品", "View product")}</button>}
                     </div>
                     <div className="evidence__body">
                       <strong>{summary}</strong>
@@ -658,10 +710,10 @@ export function OpportunityDetailPage() {
                   ))}
                 </select>
               </label>
-              {linkedProduct ? (
+              {primaryLinkedProduct ? (
                 <button
                   className="button button--orange button--full"
-                  onClick={() => navigate("/products")}
+                  onClick={() => navigate(`/products/${primaryLinkedProduct.id}`)}
                 >
                   <PackagePlus size={16} /> {t("打开关联产品", "Open linked product")}
                 </button>
@@ -688,6 +740,22 @@ export function OpportunityDetailPage() {
                 </button>
               ) : (
                 <p className="decision-stale-note">{t("AI 结论已过期，请先重新调研；人工状态仍可单独记录。", "The AI decision is stale. Research again first; human status can still be recorded separately.")}</p>
+              )}
+              <button
+                className="button button--secondary button--full"
+                onClick={() => void openLinkProduct()}
+                disabled={workflowBusy}
+              >
+                <Link2 size={15} /> {t("关联已有产品", "Link existing product")}
+              </button>
+              {linkedProducts.length > 0 && (
+                <div className="linked-product-list">
+                  {linkedProducts.map((product) => (
+                    <button className="text-button" key={product.id} onClick={() => navigate(`/products/${product.id}`)}>
+                      {product.name} <ArrowRight size={13} />
+                    </button>
+                  ))}
+                </div>
               )}
               {actionError && <div className="form-error" role="alert">{actionError}</div>}
               {actionMessage && <div className="form-success" role="status">{actionMessage}</div>}
@@ -808,6 +876,27 @@ export function OpportunityDetailPage() {
           )}
         </aside>
       </div>
+      <Modal
+        title={t("关联已有产品", "Link an existing product")}
+        subtitle={t("候选将与现有产品建立研究关系，不会重复创建产品。", "This links the candidate to an existing product without creating a duplicate.")}
+        open={linkProductOpen}
+        onClose={() => setLinkProductOpen(false)}
+      >
+        <form className="form-grid" onSubmit={(event) => void linkExistingProduct(event)}>
+          <label>
+            {t("选择产品", "Choose product")}
+            <select name="productId" required>
+              <option value="">{t("请选择…", "Choose…")}</option>
+              {productOptions.map((product) => <option value={product.id} key={product.id}>{product.name}</option>)}
+            </select>
+          </label>
+          {!productOptions.length && <p className="muted">{t("没有其他可关联的活跃产品。", "No other active products are available.")}</p>}
+          <div className="form-actions">
+            <button type="button" className="button button--ghost" onClick={() => setLinkProductOpen(false)}>{t("取消", "Cancel")}</button>
+            <button className="button button--primary" disabled={linkingProduct || !productOptions.length}>{linkingProduct ? t("关联中…", "Linking…") : t("确认关联", "Link product")}</button>
+          </div>
+        </form>
+      </Modal>
       <Modal
         title={t("编辑候选定义", "Edit candidate definition")}
         subtitle={t("修改会使当前结论失效，但会完整保留历史报告与上次调研时间。", "Changes make the current decision stale while preserving report history and the last research time.")}

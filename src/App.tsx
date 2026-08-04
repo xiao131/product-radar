@@ -22,6 +22,9 @@ const OperationsPage = lazy(() =>
 const ProductsPage = lazy(() =>
   import("./pages/ProductsPage").then((module) => ({ default: module.ProductsPage })),
 );
+const ProductDetailPage = lazy(() =>
+  import("./pages/ProductDetailPage").then((module) => ({ default: module.ProductDetailPage })),
+);
 const SignalsPage = lazy(() =>
   import("./pages/SignalsPage").then((module) => ({ default: module.SignalsPage })),
 );
@@ -37,6 +40,7 @@ function RoutedPage() {
     path === "/radar" ||
     path.startsWith("/radar/") ||
     path === "/products" ||
+    path.startsWith("/products/") ||
     path === "/signals" ||
     path === "/operations" ||
     path === "/settings";
@@ -47,6 +51,7 @@ function RoutedPage() {
 
   if (path === "/radar") return <RadarPage />;
   if (path.startsWith("/radar/")) return <OpportunityDetailPage />;
+  if (path.startsWith("/products/")) return <ProductDetailPage />;
   if (path === "/products") return <ProductsPage />;
   if (path === "/signals") return <SignalsPage />;
   if (path === "/operations") return <OperationsPage />;

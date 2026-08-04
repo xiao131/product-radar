@@ -1,5 +1,6 @@
 import type {
   Platform,
+  ProductPlatform,
   SignalSource,
   Verdict,
   WorkflowStatus,
@@ -12,7 +13,8 @@ export const verdictLabels: Record<Verdict, string> = {
   SKIP: "暂不开发",
 };
 
-export const platformLabels: Record<Platform, string> = {
+export const platformLabels: Record<ProductPlatform, string> = {
+  UNKNOWN: "待确认",
   WEB: "Web",
   IOS: "iOS",
   WEB_AND_IOS: "Web + iOS",
@@ -32,7 +34,6 @@ export const sourceLabels: Record<SignalSource, string> = {
 };
 
 export const productStatusLabels = {
-  IDEA: "想法",
   BUILDING: "开发中",
   LIVE: "已上线",
   PAUSED: "暂停",

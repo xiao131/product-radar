@@ -225,7 +225,6 @@ export function sourceName(source: SignalSource, locale: UiLocale) {
 
 export function productStatusName(status: string, locale: UiLocale) {
   const names: Record<string, [string, string]> = {
-    IDEA: ["想法", "Idea"],
     BUILDING: ["开发中", "Building"],
     LIVE: ["已上线", "Live"],
     PAUSED: ["暂停", "Paused"],

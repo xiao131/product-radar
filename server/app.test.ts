@@ -158,6 +158,151 @@ describe("Product Radar API", () => {
     expect(response.body).toHaveLength(4);
   });
 
+  it("keeps undeveloped ideas out of products and supports unknown product facts", async () => {
+    await request(app)
+      .post("/api/products")
+      .send({
+        name: "Unverified Tool",
+        platform: "UNKNOWN",
+        status: "BUILDING",
+        verificationStatus: "NEEDS_REVIEW",
+        description: "Development started but the platform still needs confirmation.",
+      })
+      .expect(201)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          platform: "UNKNOWN",
+          status: "BUILDING",
+          verificationStatus: "NEEDS_REVIEW",
+        });
+      });
+
+    await request(app)
+      .post("/api/products")
+      .send({ name: "Undeveloped idea", platform: "WEB", status: "IDEA" })
+      .expect(400);
+  });
+
+  it("creates product feedback and follow-up candidates with traceable product links", async () => {
+    const product = (
+      await request(app).get("/api/products?trash=active").expect(200)
+    ).body[0];
+
+    const feedback = await request(app)
+      .post(`/api/products/${product.id}/feedback`)
+      .send({
+        title: "Retention feedback",
+        content: "Users return when exports remain local.",
+      })
+      .expect(201);
+    expect(feedback.body).toMatchObject({
+      productId: product.id,
+      status: "NEW",
+      sourceType: "CUSTOMER",
+    });
+
+    const candidate = await request(app)
+      .post(`/api/products/${product.id}/research-candidate`)
+      .send({
+        name: "Local export reassessment",
+        oneLiner: "Test whether local export is the strongest retention driver.",
+        targetUser: "Privacy-conscious existing users",
+        recommendedPlatform: "WEB",
+      })
+      .expect(201);
+    const detail = await request(app)
+      .get(`/api/opportunities/${candidate.body.id}`)
+      .expect(200);
+    expect(detail.body.linkedProducts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: product.id })]),
+    );
+    expect(detail.body.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ productId: product.id, category: "BUILD" }),
+      ]),
+    );
+  });
+
+  it("reclassifies a mistaken product as evidence and protects linked trash records", async () => {
+    const created = await request(app)
+      .post("/api/products")
+      .send({
+        name: "Mistaken History Item",
+        platform: "UNKNOWN",
+        status: "PAUSED",
+        verificationStatus: "NEEDS_REVIEW",
+        description: "This was never developed.",
+      })
+      .expect(201);
+
+    const corrected = await request(app)
+      .post(`/api/products/${created.body.id}/reclassify-to-signal`)
+      .send({})
+      .expect(201);
+    expect(corrected.body.signal).toMatchObject({
+      title: "Mistaken History Item",
+      productId: created.body.id,
+      sourceType: "IDEA",
+    });
+
+    const active = await request(app).get("/api/products?trash=active").expect(200);
+    expect(active.body.some((item: { id: string }) => item.id === created.body.id)).toBe(false);
+    const trash = await request(app).get("/api/products?trash=trashed").expect(200);
+    expect(trash.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: created.body.id,
+          reclassifiedSignalId: corrected.body.signal.id,
+          trashedAt: expect.any(String),
+        }),
+      ]),
+    );
+
+    await request(app)
+      .delete(`/api/products/${created.body.id}/permanent`)
+      .expect(204);
+    const evidence = await request(app).get("/api/signals").expect(200);
+    expect(evidence.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: corrected.body.signal.id, productId: null }),
+      ]),
+    );
+  });
+
+  it("merges duplicate products without losing candidate relationships", async () => {
+    const products = (
+      await request(app).get("/api/products?trash=active").expect(200)
+    ).body;
+    const source = products[0];
+    const target = products[1];
+    const candidate = (
+      await request(app).get("/api/opportunities").expect(200)
+    ).body.items[0];
+
+    await request(app)
+      .post(`/api/opportunities/${candidate.id}/products`)
+      .send({ productId: source.id })
+      .expect(200);
+    await request(app)
+      .post(`/api/products/${source.id}/merge`)
+      .send({ targetProductId: target.id })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.product).toMatchObject({
+          id: source.id,
+          mergedIntoProductId: target.id,
+          trashedAt: expect.any(String),
+        });
+      });
+
+    const candidateDetail = await request(app)
+      .get(`/api/opportunities/${candidate.id}`)
+      .expect(200);
+    expect(candidateDetail.body.linkedProducts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: target.id })]),
+    );
+  });
+
   it("previews and imports products while skipping existing portfolio rows", async () => {
     const csv = [
       "name,platform,status,url,description,current_focus",
@@ -827,7 +972,8 @@ describe("Product Radar API", () => {
       .expect("Content-Disposition", /product-radar-products-template\.csv/);
     expect(products.text.charCodeAt(0)).toBe(0xfeff);
     expect(products.text).toContain("name,platform,status");
-    expect(products.text).toContain("示例产品,WEB,IDEA");
+    expect(products.text).toContain("示例产品,WEB,BUILDING");
+    expect(products.text).toContain("verification_status");
 
     const productPreview = await request(app)
       .post("/api/products/import/preview")

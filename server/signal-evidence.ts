@@ -60,6 +60,7 @@ export function evidenceFromSignal(
   return {
     id: randomUUID(),
     opportunityId,
+    productId: signal.productId ?? null,
     category,
     sourceName: signal.sourceName ?? `${signal.sourceType} Signal`,
     sourceUrl: signal.sourceUrl,

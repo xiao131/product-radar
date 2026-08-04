@@ -83,8 +83,16 @@ export function mapProduct(row: Row): Product {
     url: row.url ? String(row.url) : null,
     description: String(row.description),
     currentFocus: String(row.current_focus),
+    verificationStatus: (row.verification_status ?? "CONFIRMED") as Product["verificationStatus"],
     sourceOpportunityId: row.source_opportunity_id
       ? String(row.source_opportunity_id)
+      : null,
+    trashedAt: row.trashed_at ? String(row.trashed_at) : null,
+    reclassifiedSignalId: row.reclassified_signal_id
+      ? String(row.reclassified_signal_id)
+      : null,
+    mergedIntoProductId: row.merged_into_product_id
+      ? String(row.merged_into_product_id)
       : null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
@@ -113,6 +121,7 @@ export function mapSignal(row: Row): Signal {
     tags,
     status: row.status as Signal["status"],
     opportunityId: row.opportunity_id ? String(row.opportunity_id) : null,
+    productId: row.product_id ? String(row.product_id) : null,
     fingerprint: row.fingerprint ? String(row.fingerprint) : null,
     market: row.market ? String(row.market) : null,
     originalLanguage: (row.original_language ?? "und") as Signal["originalLanguage"],
@@ -136,6 +145,7 @@ export function mapEvidence(row: Row): EvidenceItem {
   return {
     id: String(row.id),
     opportunityId: String(row.opportunity_id),
+    productId: row.product_id ? String(row.product_id) : null,
     category: row.category as EvidenceItem["category"],
     sourceName: String(row.source_name),
     sourceUrl: row.source_url ? String(row.source_url) : null,

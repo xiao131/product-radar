@@ -34,7 +34,7 @@ import {
   reusableFailedResearchEvidence,
 } from "./research.js";
 import { latestSchemaVersion } from "./migrations.js";
-import { estimateResearchCost } from "./providers.js";
+import { estimateResearchCost, persistEvidence } from "./providers.js";
 import { createSecurity, fixedWindowRateLimiter } from "./security.js";
 import { schedulerRuntimeStatus } from "./scheduler.js";
 import { linkSignalEvidence } from "./signal-evidence.js";
@@ -60,9 +60,14 @@ import {
 import {
   createProductSchema,
   createSignalSchema,
+  linkProductSchema,
   linkSignalSchema,
+  mergeProductSchema,
   opportunityUpdateSchema,
   opportunityWorkflowUpdateSchema,
+  productFeedbackSchema,
+  productResearchCandidateSchema,
+  reclassifyProductSchema,
   updateProductSchema,
 } from "../shared/schemas.js";
 import type {
@@ -77,6 +82,9 @@ import type {
   OperationsStatus,
   Paginated,
   Product,
+  ProductDependencies,
+  ProductDetail,
+  ProductOpportunityLink,
   Signal,
   SignalPage,
 } from "../shared/types.js";
@@ -128,12 +136,16 @@ const csvImportRequestSchema = z.object({
   csv: z.string().min(1).max(1_500_000),
 });
 
+const productListQuerySchema = z.object({
+  trash: z.enum(["active", "trashed"]).default("active"),
+});
+
 const signalCsvTemplate =
   "\uFEFFtitle,content,source_type,source_url,tags,market,original_language,source_name,collected_at,external_id\r\n" +
   '示例：分享截图前隐藏隐私,"每次都要手动遮住姓名、头像",APP_REVIEW,https://example.com/review,privacy;screenshot,CN/zh-CN,zh-CN,App Store,2025-01-15,example-review-001\r\n';
 const productCsvTemplate =
-  "\uFEFFname,platform,status,url,description,current_focus\r\n" +
-  "示例产品,WEB,IDEA,https://example.com/sample-product,帮助用户整理公开信息,验证目标用户是否愿意使用\r\n";
+  "\uFEFFname,platform,status,url,description,current_focus,verification_status\r\n" +
+  "示例产品,WEB,BUILDING,https://example.com/sample-product,帮助用户整理公开信息,验证目标用户是否愿意使用,CONFIRMED\r\n";
 
 const sortColumns = {
   score: "score",
@@ -167,6 +179,126 @@ function markPortfolioDependentResearchDue(
          change_summary = '产品组合发生变化，等待重新评估资产复用与个人匹配。',
          updated_at = ?`,
   ).run(changedAt, changedAt);
+}
+
+function productDependencies(
+  db: RadarDatabase,
+  productId: string,
+): ProductDependencies {
+  const count = (sql: string, ...params: unknown[]) =>
+    Number((db.prepare(sql).get(...params) as { count: number }).count);
+  return {
+    candidateLinks: count(
+      "SELECT COUNT(*) AS count FROM product_opportunity_links WHERE product_id = ?",
+      productId,
+    ),
+    feedbackSignals: count(
+      "SELECT COUNT(*) AS count FROM signals WHERE product_id = ?",
+      productId,
+    ),
+    evidenceItems: count(
+      "SELECT COUNT(*) AS count FROM evidence_items WHERE product_id = ?",
+      productId,
+    ),
+  };
+}
+
+function productDetail(db: RadarDatabase, productId: string): ProductDetail | null {
+  const row = db.prepare("SELECT * FROM products WHERE id = ?").get(productId) as
+    | Record<string, unknown>
+    | undefined;
+  if (!row) return null;
+  const product = mapProduct(row);
+  const relatedRows = db.prepare(
+    `SELECT o.*, link.relation_type, link.created_at AS relation_created_at
+     FROM product_opportunity_links link
+     JOIN opportunities o ON o.id = link.opportunity_id
+     WHERE link.product_id = ?
+     ORDER BY link.created_at DESC`,
+  ).all(productId) as Array<Record<string, unknown>>;
+  const relatedOpportunities: ProductOpportunityLink[] = relatedRows.map((item) => ({
+    opportunity: mapOpportunity(item),
+    relationType: item.relation_type as ProductOpportunityLink["relationType"],
+    createdAt: String(item.relation_created_at),
+  }));
+  const signalRow = product.reclassifiedSignalId
+    ? db.prepare("SELECT * FROM signals WHERE id = ?").get(product.reclassifiedSignalId) as
+      | Record<string, unknown>
+      | undefined
+    : undefined;
+  const mergedRow = product.mergedIntoProductId
+    ? db.prepare("SELECT * FROM products WHERE id = ?").get(product.mergedIntoProductId) as
+      | Record<string, unknown>
+      | undefined
+    : undefined;
+  return {
+    product,
+    relatedOpportunities,
+    dependencies: productDependencies(db, productId),
+    reclassifiedSignal: signalRow ? mapSignal(signalRow) : null,
+    mergedIntoProduct: mergedRow ? mapProduct(mergedRow) : null,
+  };
+}
+
+function insertProductSignal(
+  db: RadarDatabase,
+  product: Product,
+  input: {
+    title: string;
+    content: string;
+    sourceUrl?: string | null;
+    sourceType: Signal["sourceType"];
+    tags: string[];
+    metrics?: Record<string, unknown>;
+  },
+) {
+  const createdAt = now();
+  const signal: Signal = {
+    id: randomUUID(),
+    sourceType: input.sourceType,
+    title: input.title,
+    content: input.content,
+    sourceUrl: input.sourceUrl || null,
+    tags: input.tags,
+    status: "NEW",
+    opportunityId: null,
+    productId: product.id,
+    market: null,
+    originalLanguage: detectContentLanguage(input.title, input.content),
+    sourceName: product.name,
+    metrics: {
+      _productSource: {
+        id: product.id,
+        name: product.name,
+        platform: product.platform,
+        status: product.status,
+      },
+      ...(input.metrics ?? {}),
+    },
+    createdAt,
+    updatedAt: createdAt,
+  };
+  db.prepare(`
+    INSERT INTO signals (
+      id, source_type, title, content, source_url, tags_json, status,
+      opportunity_id, product_id, source_name, metrics_json,
+      original_language, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'NEW', NULL, ?, ?, ?, ?, ?, ?)
+  `).run(
+    signal.id,
+    signal.sourceType,
+    signal.title,
+    signal.content,
+    signal.sourceUrl,
+    JSON.stringify(signal.tags),
+    product.id,
+    signal.sourceName,
+    JSON.stringify(signal.metrics),
+    signal.originalLanguage,
+    createdAt,
+    createdAt,
+  );
+  return signal;
 }
 
 function sendCsvTemplate(
@@ -292,7 +424,7 @@ function previewSignalImport(db: RadarDatabase, csv: string) {
 function previewProductImport(db: RadarDatabase, csv: string) {
   const parsed = analyzeProductCsv(csv);
   const existingRows = db
-    .prepare("SELECT name, platform, url FROM products")
+    .prepare("SELECT name, platform, url FROM products WHERE trashed_at IS NULL")
     .all() as Array<{ name: string; platform: string; url: string | null }>;
   const existingKeys = new Set(
     existingRows.map((product) => productImportKey(product)),
@@ -760,7 +892,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       ),
       products: rows(
         db,
-        "SELECT * FROM products WHERE status != 'ARCHIVED' ORDER BY updated_at DESC LIMIT 5",
+        "SELECT * FROM products WHERE trashed_at IS NULL AND status != 'ARCHIVED' ORDER BY updated_at DESC LIMIT 5",
         mapProduct,
       ),
       stats: {
@@ -772,7 +904,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
           "SELECT COUNT(*) AS count FROM opportunities WHERE research_status = 'UNRESEARCHED'",
         ),
         liveProducts: scalar(
-          "SELECT COUNT(*) AS count FROM products WHERE status = 'LIVE'",
+          "SELECT COUNT(*) AS count FROM products WHERE status = 'LIVE' AND trashed_at IS NULL",
         ),
       },
     };
@@ -961,14 +1093,25 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
             .get(request.params.id) as { count: number }
         ).count,
       );
+    const linkedProducts = rows(
+      db,
+      `SELECT p.*
+       FROM product_opportunity_links link
+       JOIN products p ON p.id = link.product_id
+       WHERE link.opportunity_id = ? AND p.trashed_at IS NULL
+       ORDER BY link.created_at DESC`,
+      mapProduct,
+      request.params.id,
+    );
     const detail: OpportunityDetail = {
       opportunity: mapOpportunity(opportunityRow),
       linkedProduct: (() => {
         const row = db
-          .prepare("SELECT * FROM products WHERE source_opportunity_id = ?")
+          .prepare("SELECT * FROM products WHERE source_opportunity_id = ? AND trashed_at IS NULL")
           .get(request.params.id) as Record<string, unknown> | undefined;
         return row ? mapProduct(row) : null;
       })(),
+      linkedProducts,
       reportEvidence: reportEvidenceFromSnapshot(
         request.params.id,
         reports[0],
@@ -1088,11 +1231,35 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       response.status(409).json({ error: "候选完成首次调研后才能转成产品" });
       return;
     }
+    const linkedExistingRow = db.prepare(
+      `SELECT p.*
+       FROM product_opportunity_links link
+       JOIN products p ON p.id = link.product_id
+       WHERE link.opportunity_id = ? AND p.trashed_at IS NULL
+       ORDER BY CASE link.relation_type WHEN 'ORIGIN' THEN 0 ELSE 1 END,
+                link.created_at ASC
+       LIMIT 1`,
+    ).get(request.params.id) as Record<string, unknown> | undefined;
+    if (linkedExistingRow) {
+      const changedAt = now();
+      db.prepare(
+        `UPDATE opportunities
+         SET workflow_status = 'APPROVED', workflow_updated_at = ?, updated_at = ?
+         WHERE id = ? AND workflow_status != 'APPROVED'`,
+      ).run(changedAt, changedAt, request.params.id);
+      response.json({ product: mapProduct(linkedExistingRow), created: false });
+      return;
+    }
     const existingRow = db
-      .prepare("SELECT * FROM products WHERE source_opportunity_id = ?")
+      .prepare("SELECT * FROM products WHERE source_opportunity_id = ? AND trashed_at IS NULL")
       .get(request.params.id) as Record<string, unknown> | undefined;
     if (existingRow) {
       const changedAt = now();
+      db.prepare(
+        `INSERT OR IGNORE INTO product_opportunity_links (
+           product_id, opportunity_id, relation_type, created_at
+         ) VALUES (?, ?, 'ORIGIN', ?)`,
+      ).run(String(existingRow.id), request.params.id, changedAt);
       db.prepare(
         `UPDATE opportunities
          SET workflow_status = 'APPROVED', workflow_updated_at = ?, updated_at = ?
@@ -1112,7 +1279,11 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       url: null,
       description: opportunity.oneLiner,
       currentFocus: latestReport.recommended_action,
+      verificationStatus: "CONFIRMED",
       sourceOpportunityId: opportunity.id,
+      trashedAt: null,
+      reclassifiedSignalId: null,
+      mergedIntoProductId: null,
       createdAt,
       updatedAt: createdAt,
     };
@@ -1126,6 +1297,11 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
           @sourceOpportunityId, @createdAt, @updatedAt
         )
       `).run(product);
+      db.prepare(
+        `INSERT OR IGNORE INTO product_opportunity_links (
+           product_id, opportunity_id, relation_type, created_at
+         ) VALUES (?, ?, 'ORIGIN', ?)`,
+      ).run(product.id, opportunity.id, createdAt);
       markPortfolioDependentResearchDue(db, createdAt);
       db.prepare(
         `UPDATE opportunities
@@ -1134,6 +1310,30 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       ).run(createdAt, createdAt, opportunity.id);
     })();
     response.status(201).json({ product, created: true });
+  });
+
+  app.post("/api/opportunities/:id/products", (request, response) => {
+    const { productId } = linkProductSchema.parse(request.body);
+    const opportunity = db
+      .prepare("SELECT id FROM opportunities WHERE id = ?")
+      .get(request.params.id);
+    const productRow = db
+      .prepare("SELECT * FROM products WHERE id = ? AND trashed_at IS NULL")
+      .get(productId) as Record<string, unknown> | undefined;
+    if (!opportunity) {
+      response.status(404).json({ error: "找不到这个候选产品" });
+      return;
+    }
+    if (!productRow) {
+      response.status(404).json({ error: "找不到要关联的产品" });
+      return;
+    }
+    db.prepare(
+      `INSERT OR IGNORE INTO product_opportunity_links (
+         product_id, opportunity_id, relation_type, created_at
+       ) VALUES (?, ?, 'EXISTING', ?)`,
+    ).run(productId, request.params.id, now());
+    response.json(mapProduct(productRow));
   });
 
   app.post(
@@ -1431,10 +1631,26 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
     }
   });
 
-  app.get("/api/products", (_request, response) => {
+  app.get("/api/products", (request, response) => {
+    const { trash } = productListQuerySchema.parse(request.query);
     response.json(
-      rows(db, "SELECT * FROM products ORDER BY updated_at DESC", mapProduct),
+      rows(
+        db,
+        `SELECT * FROM products
+         WHERE trashed_at IS ${trash === "trashed" ? "NOT NULL" : "NULL"}
+         ORDER BY updated_at DESC`,
+        mapProduct,
+      ),
     );
+  });
+
+  app.get("/api/products/:id", (request, response) => {
+    const detail = productDetail(db, request.params.id);
+    if (!detail) {
+      response.status(404).json({ error: "找不到这个产品" });
+      return;
+    }
+    response.json(detail);
   });
 
   app.get("/api/products/import/template", (_request, response) => {
@@ -1461,8 +1677,8 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       const statement = db.prepare(`
         INSERT INTO products (
           id, name, platform, status, url, description, current_focus,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          verification_status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const product of analyzed.importable) {
         statement.run(
@@ -1473,6 +1689,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
           product.url,
           product.description,
           product.currentFocus,
+          product.verificationStatus,
           changedAt,
           changedAt,
         );
@@ -1506,16 +1723,22 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       url: input.url || null,
       description: input.description,
       currentFocus: input.currentFocus,
+      verificationStatus: input.verificationStatus,
       sourceOpportunityId: null,
+      trashedAt: null,
+      reclassifiedSignalId: null,
+      mergedIntoProductId: null,
       createdAt: now(),
       updatedAt: now(),
     };
     db.transaction(() => {
       db.prepare(`
         INSERT INTO products (
-          id, name, platform, status, url, description, current_focus, created_at, updated_at
+          id, name, platform, status, url, description, current_focus,
+          verification_status, created_at, updated_at
         ) VALUES (
-          @id, @name, @platform, @status, @url, @description, @currentFocus, @createdAt, @updatedAt
+          @id, @name, @platform, @status, @url, @description, @currentFocus,
+          @verificationStatus, @createdAt, @updatedAt
         )
       `).run(product);
       markPortfolioDependentResearchDue(db, product.updatedAt);
@@ -1532,6 +1755,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       url: "url",
       description: "description",
       currentFocus: "current_focus",
+      verificationStatus: "verification_status",
     }, new Set(["url"]));
     if (updates.length) {
       const changedAt = now();
@@ -1556,6 +1780,253 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
       return;
     }
     response.json(mapProduct(row));
+  });
+
+  app.post("/api/products/:id/feedback", (request, response) => {
+    const input = productFeedbackSchema.parse(request.body);
+    const productRow = db
+      .prepare("SELECT * FROM products WHERE id = ? AND trashed_at IS NULL")
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    if (!productRow) {
+      response.status(404).json({ error: "找不到这个产品" });
+      return;
+    }
+    const product = mapProduct(productRow);
+    let signal: Signal;
+    db.transaction(() => {
+      signal = insertProductSignal(db, product, {
+        title: input.title,
+        content: input.content,
+        sourceUrl: input.sourceUrl || null,
+        sourceType: "CUSTOMER",
+        tags: ["产品反馈", product.name],
+      });
+      if (input.opportunityId) {
+        db.prepare(
+          `INSERT OR IGNORE INTO product_opportunity_links (
+             product_id, opportunity_id, relation_type, created_at
+           ) VALUES (?, ?, 'EXISTING', ?)`,
+        ).run(product.id, input.opportunityId, now());
+        linkSignalEvidence(db, signal, input.opportunityId);
+      }
+    })();
+    const saved = db.prepare("SELECT * FROM signals WHERE id = ?").get(signal!.id) as Record<string, unknown>;
+    response.status(201).json(mapSignal(saved));
+  });
+
+  app.post("/api/products/:id/research-candidate", (request, response) => {
+    const input = productResearchCandidateSchema.parse(request.body);
+    const productRow = db
+      .prepare("SELECT * FROM products WHERE id = ? AND trashed_at IS NULL")
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    if (!productRow) {
+      response.status(404).json({ error: "找不到这个产品" });
+      return;
+    }
+    const product = mapProduct(productRow);
+    const createdAt = now();
+    const opportunityId = randomUUID();
+    const language = detectContentLanguage(input.name, input.oneLiner, input.targetUser);
+    const locale = language === "en" ? "en" : "zh-CN";
+    const pendingResearch = language === "en"
+      ? "Created from an existing product and awaiting research."
+      : "由现有产品发起重新调研，等待首次判断。";
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO opportunities (
+          id, name, one_liner, target_user, source_type, recommended_platform,
+          verdict, research_status, score, score_delta, confidence,
+          change_summary, original_language, target_markets_json,
+          localized_content_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'OTHER', ?, 'WATCH', 'UNRESEARCHED', 0, 0, 0, ?, ?, ?, ?, ?, ?)
+      `).run(
+        opportunityId,
+        input.name,
+        input.oneLiner,
+        input.targetUser,
+        input.recommendedPlatform,
+        pendingResearch,
+        language,
+        JSON.stringify([language === "en" ? "US" : "CN"]),
+        JSON.stringify({
+          [locale]: {
+            name: input.name,
+            oneLiner: input.oneLiner,
+            targetUser: input.targetUser,
+            changeSummary: pendingResearch,
+          },
+        }),
+        createdAt,
+        createdAt,
+      );
+      db.prepare(
+        `INSERT INTO product_opportunity_links (
+           product_id, opportunity_id, relation_type, created_at
+         ) VALUES (?, ?, 'RESEARCH', ?)`,
+      ).run(product.id, opportunityId, createdAt);
+      persistEvidence(db, [{
+        id: randomUUID(),
+        opportunityId,
+        productId: product.id,
+        category: "BUILD",
+        sourceName: product.name,
+        sourceUrl: product.url,
+        metric: "existing_product_context",
+        value: 1,
+        unit: "product",
+        direction: "UNKNOWN",
+        strength: product.verificationStatus === "CONFIRMED" ? 90 : 65,
+        summary: `现有产品背景：${product.name}（${product.status}）。${product.description}`,
+        rawExcerpt: [product.description, product.currentFocus].filter(Boolean).join("\n"),
+        originalLanguage: detectContentLanguage(product.name, product.description),
+        translations: {},
+        collectedAt: createdAt,
+        freshnessDays: 0,
+        fingerprint: `product-context:${product.id}:${opportunityId}`,
+        market: null,
+      }]);
+    })();
+    const created = db.prepare("SELECT * FROM opportunities WHERE id = ?").get(opportunityId) as Record<string, unknown>;
+    response.status(201).json(mapOpportunity(created));
+  });
+
+  app.post("/api/products/:id/reclassify-to-signal", (request, response) => {
+    const input = reclassifyProductSchema.parse(request.body ?? {});
+    const productRow = db
+      .prepare("SELECT * FROM products WHERE id = ? AND trashed_at IS NULL")
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    if (!productRow) {
+      response.status(404).json({ error: "找不到这个产品" });
+      return;
+    }
+    const product = mapProduct(productRow);
+    let signal: Signal;
+    const changedAt = now();
+    db.transaction(() => {
+      signal = insertProductSignal(db, product, {
+        title: input.title ?? product.name,
+        content: input.content ?? [
+          product.description || `${product.name} 是一条待研究的历史想法。`,
+          product.currentFocus ? `此前记录的下一步：${product.currentFocus}` : "",
+          "该记录此前被误放入产品库，现已纠正为原始证据。",
+        ].filter(Boolean).join("\n\n"),
+        sourceUrl: product.url,
+        sourceType: "IDEA",
+        tags: ["产品纠错", "历史想法"],
+        metrics: { _reclassifiedAt: changedAt },
+      });
+      db.prepare(
+        `UPDATE products
+         SET trashed_at = ?, reclassified_signal_id = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(changedAt, signal.id, changedAt, product.id);
+      markPortfolioDependentResearchDue(db, changedAt);
+    })();
+    response.status(201).json({ signal: signal!, product: productDetail(db, product.id)?.product });
+  });
+
+  app.post("/api/products/:id/merge", (request, response) => {
+    const { targetProductId } = mergeProductSchema.parse(request.body);
+    if (targetProductId === request.params.id) {
+      response.status(400).json({ error: "不能把产品合并到自身" });
+      return;
+    }
+    const sourceRow = db
+      .prepare("SELECT * FROM products WHERE id = ? AND trashed_at IS NULL")
+      .get(request.params.id) as Record<string, unknown> | undefined;
+    const targetRow = db
+      .prepare("SELECT * FROM products WHERE id = ? AND trashed_at IS NULL")
+      .get(targetProductId) as Record<string, unknown> | undefined;
+    if (!sourceRow || !targetRow) {
+      response.status(404).json({ error: "找不到要合并的产品" });
+      return;
+    }
+    const source = mapProduct(sourceRow);
+    const target = mapProduct(targetRow);
+    const changedAt = now();
+    db.transaction(() => {
+      db.prepare(
+        `INSERT OR IGNORE INTO product_opportunity_links (
+           product_id, opportunity_id, relation_type, created_at
+         )
+         SELECT ?, opportunity_id, relation_type, created_at
+         FROM product_opportunity_links WHERE product_id = ?`,
+      ).run(target.id, source.id);
+      db.prepare("DELETE FROM product_opportunity_links WHERE product_id = ?").run(source.id);
+      db.prepare("UPDATE signals SET product_id = ? WHERE product_id = ?").run(target.id, source.id);
+      db.prepare("UPDATE evidence_items SET product_id = ? WHERE product_id = ?").run(target.id, source.id);
+      db.prepare("UPDATE products SET source_opportunity_id = NULL WHERE id = ?").run(source.id);
+      if (!target.sourceOpportunityId && source.sourceOpportunityId) {
+        db.prepare("UPDATE products SET source_opportunity_id = ? WHERE id = ?")
+          .run(source.sourceOpportunityId, target.id);
+      }
+      db.prepare(
+        `UPDATE products
+         SET trashed_at = ?, merged_into_product_id = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(changedAt, target.id, changedAt, source.id);
+      db.prepare("UPDATE products SET updated_at = ? WHERE id = ?").run(changedAt, target.id);
+      markPortfolioDependentResearchDue(db, changedAt);
+    })();
+    response.json(productDetail(db, source.id));
+  });
+
+  app.delete("/api/products/:id", (request, response) => {
+    const changedAt = now();
+    const result = db.prepare(
+      `UPDATE products SET trashed_at = ?, updated_at = ?
+       WHERE id = ? AND trashed_at IS NULL`,
+    ).run(changedAt, changedAt, request.params.id);
+    if (!result.changes) {
+      response.status(404).json({ error: "找不到这个产品" });
+      return;
+    }
+    markPortfolioDependentResearchDue(db, changedAt);
+    response.json(productDetail(db, request.params.id));
+  });
+
+  app.post("/api/products/:id/restore", (request, response) => {
+    const changedAt = now();
+    const result = db.prepare(
+      `UPDATE products
+       SET trashed_at = NULL, merged_into_product_id = NULL, updated_at = ?
+       WHERE id = ? AND trashed_at IS NOT NULL`,
+    ).run(changedAt, request.params.id);
+    if (!result.changes) {
+      response.status(404).json({ error: "回收站里找不到这个产品" });
+      return;
+    }
+    markPortfolioDependentResearchDue(db, changedAt);
+    response.json(productDetail(db, request.params.id));
+  });
+
+  app.delete("/api/products/:id/permanent", (request, response) => {
+    const detail = productDetail(db, request.params.id);
+    if (!detail?.product.trashedAt) {
+      response.status(409).json({ error: "产品必须先移入回收站" });
+      return;
+    }
+    const blockingSignals = Number((db.prepare(
+      `SELECT COUNT(*) AS count FROM signals
+       WHERE product_id = ? AND id != COALESCE(?, '')`,
+    ).get(request.params.id, detail.product.reclassifiedSignalId) as { count: number }).count);
+    if (
+      detail.dependencies.candidateLinks > 0 ||
+      blockingSignals > 0 ||
+      detail.dependencies.evidenceItems > 0
+    ) {
+      response.status(409).json({
+        error: "这个产品仍有关联数据，不能永久删除",
+        details: detail.dependencies,
+      });
+      return;
+    }
+    db.transaction(() => {
+      db.prepare("UPDATE signals SET product_id = NULL WHERE product_id = ?")
+        .run(request.params.id);
+      db.prepare("DELETE FROM products WHERE id = ?").run(request.params.id);
+    })();
+    response.status(204).send();
   });
 
   app.get("/api/signals", (request, response) => {

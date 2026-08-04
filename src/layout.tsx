@@ -71,7 +71,11 @@ export function AppLayout({
       ? locale === "zh-CN"
         ? ["机会调研档案", "查看结论、证据与每次重新评分。"]
         : ["Opportunity research", "Review conclusions, evidence, and every reassessment."]
-      : [t("产品雷达", "Product Radar"), ""]);
+        : path.startsWith("/products/")
+          ? locale === "zh-CN"
+            ? ["产品档案", "查看产品状态、证据反馈与关联候选。"]
+            : ["Product record", "Review product status, feedback evidence, and related candidates."]
+          : [t("产品雷达", "Product Radar"), ""]);
   const title = { title: titleCopy[0], subtitle: titleCopy[1] };
 
   const loadSettings = useCallback(() => {

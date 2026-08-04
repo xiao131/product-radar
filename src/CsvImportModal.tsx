@@ -91,15 +91,15 @@ export function CsvImportModal({
     required: isSignals ? "title, content" : "name, platform",
     optional: isSignals
       ? "source_type, source_url, tags, market, original_language, source_name, collected_at, external_id"
-      : "status, url, description, current_focus",
+      : "status, url, description, current_focus, verification_status",
     rules: isSignals
       ? t(
           "source_type 支持 IDEA、REDDIT、X、APP_REVIEW、APP_STORE、SEARCH、TREND、FORUM、CUSTOMER、OTHER；tags 用英文分号分隔。",
           "source_type supports IDEA, REDDIT, X, APP_REVIEW, APP_STORE, SEARCH, TREND, FORUM, CUSTOMER, and OTHER; separate tags with semicolons.",
         )
       : t(
-          "platform 支持 WEB、IOS、WEB_AND_IOS；status 支持 IDEA、BUILDING、LIVE、PAUSED、ARCHIVED。",
-          "platform supports WEB, IOS, and WEB_AND_IOS; status supports IDEA, BUILDING, LIVE, PAUSED, and ARCHIVED.",
+          "platform 支持 UNKNOWN、WEB、IOS、WEB_AND_IOS；status 支持 BUILDING、LIVE、PAUSED、ARCHIVED。未开发想法请导入原始证据。",
+          "platform supports UNKNOWN, WEB, IOS, and WEB_AND_IOS; status supports BUILDING, LIVE, PAUSED, and ARCHIVED. Import undeveloped ideas as raw evidence.",
         ),
     previewColumns: isSignals
       ? ["title", "source_type", "market", "collected_at"]

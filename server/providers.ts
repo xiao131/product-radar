@@ -1452,17 +1452,18 @@ export function createResearchProvider(
 export function persistEvidence(db: RadarDatabase, evidence: EvidenceItem[]) {
   const statement = db.prepare(`
     INSERT INTO evidence_items (
-      id, opportunity_id, category, source_name, source_url, metric, value, unit,
+      id, opportunity_id, product_id, category, source_name, source_url, metric, value, unit,
       direction, strength, summary, raw_excerpt, collected_at, freshness_days,
       fingerprint, market, original_language, translations_json
     ) VALUES (
-      @id, @opportunityId, @category, @sourceName, @sourceUrl, @metric, @value, @unit,
+      @id, @opportunityId, @productId, @category, @sourceName, @sourceUrl, @metric, @value, @unit,
       @direction, @strength, @summary, @rawExcerpt, @collectedAt, @freshnessDays,
       @fingerprint, @market, @originalLanguage, @translationsJson
     )
     ON CONFLICT(opportunity_id, fingerprint) WHERE fingerprint IS NOT NULL
     DO UPDATE SET
       category = excluded.category,
+      product_id = excluded.product_id,
       source_name = excluded.source_name,
       source_url = excluded.source_url,
       metric = excluded.metric,
@@ -1482,6 +1483,7 @@ export function persistEvidence(db: RadarDatabase, evidence: EvidenceItem[]) {
     items.forEach((item) =>
       statement.run({
         ...item,
+        productId: item.productId ?? null,
         fingerprint: item.fingerprint ?? null,
         market: item.market ?? null,
         originalLanguage:

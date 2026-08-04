@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  Boxes,
   ChevronLeft,
   ChevronRight,
   FileUp,
@@ -194,6 +195,11 @@ export function SignalsPage() {
                 <Inbox size={17} />
                 <span>{sourceName(signal.sourceType, locale)}</span>
                 {signal.sourceName && <small>{signal.sourceName}</small>}
+                {signal.productId && (
+                  <button className="text-button signal-product-source" onClick={() => navigate(`/products/${signal.productId}`)}>
+                    <Boxes size={12} /> {t("来自产品", "From product")}
+                  </button>
+                )}
                 {signal.market && <small>{marketName(signal.market, locale)}</small>}
                 {signal.originalLanguage && <small>{languageName(signal.originalLanguage, locale)}</small>}
                 {signal.autoCollected && (

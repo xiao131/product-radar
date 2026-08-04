@@ -3,8 +3,9 @@ import { ZodError } from "zod";
 import { createSignalSchema } from "../shared/schemas.js";
 import type {
   ContentLanguage,
-  Platform,
   Product,
+  ProductPlatform,
+  ProductVerificationStatus,
   SignalSource,
 } from "../shared/types.js";
 import { languageFromMarket } from "../shared/localization.js";
@@ -86,11 +87,12 @@ export interface ImportedSignal {
 
 export interface ImportedProduct {
   name: string;
-  platform: Platform;
+  platform: ProductPlatform;
   status: Product["status"];
   url: string | null;
   description: string;
   currentFocus: string;
+  verificationStatus: ProductVerificationStatus;
 }
 
 export interface ParsedCsvRow<T> {
@@ -130,6 +132,7 @@ const productHeaders = new Map([
   ["description", "description"],
   ["current_focus", "current_focus"],
   ["focus", "current_focus"],
+  ["verification_status", "verification_status"],
 ]);
 
 function normalizeHeader(value: string) {
@@ -390,13 +393,17 @@ export function analyzeProductCsv(csv: string): ParsedCsv<ImportedProduct> {
         const url = (row.values.url ?? "").trim();
         const description = (row.values.description ?? "").trim();
         const currentFocus = (row.values.current_focus ?? "").trim();
+        const verificationStatus = (row.values.verification_status || "CONFIRMED").trim().toUpperCase();
         const messages = [...row.messages];
         if (name.length < 2 || name.length > 100) messages.push("name 需要 2–100 个字符");
-        if (!["WEB", "IOS", "WEB_AND_IOS"].includes(platform)) {
-          messages.push("platform 仅支持 WEB、IOS、WEB_AND_IOS");
+        if (!["UNKNOWN", "WEB", "IOS", "WEB_AND_IOS"].includes(platform)) {
+          messages.push("platform 仅支持 UNKNOWN、WEB、IOS、WEB_AND_IOS");
         }
-        if (!["IDEA", "BUILDING", "LIVE", "PAUSED", "ARCHIVED"].includes(status)) {
-          messages.push("status 仅支持 IDEA、BUILDING、LIVE、PAUSED、ARCHIVED");
+        if (!["BUILDING", "LIVE", "PAUSED", "ARCHIVED"].includes(status)) {
+          messages.push("status 仅支持 BUILDING、LIVE、PAUSED、ARCHIVED；未开发想法请导入原始证据");
+        }
+        if (!["CONFIRMED", "NEEDS_REVIEW"].includes(verificationStatus)) {
+          messages.push("verification_status 仅支持 CONFIRMED、NEEDS_REVIEW");
         }
         if (description.length > 600) messages.push("description 最多 600 个字符");
         if (currentFocus.length > 300) messages.push("current_focus 最多 300 个字符");
@@ -414,11 +421,12 @@ export function analyzeProductCsv(csv: string): ParsedCsv<ImportedProduct> {
         return {
           value: {
             name,
-            platform: platform as Platform,
+            platform: platform as ProductPlatform,
             status: status as Product["status"],
             url: url || null,
             description,
             currentFocus,
+            verificationStatus: verificationStatus as ProductVerificationStatus,
           },
           messages,
         };
