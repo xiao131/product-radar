@@ -1,5 +1,6 @@
 import "dotenv/config";
 import path from "node:path";
+import { MIN_ADMIN_PASSWORD_LENGTH } from "../shared/auth.js";
 import { createDatabase } from "./db.js";
 import { hashPassword, normalizeAdminUsername } from "./security.js";
 
@@ -7,7 +8,7 @@ const password = process.env.RADAR_ADMIN_PASSWORD;
 
 if (!password) {
   console.error(
-    "请通过 RADAR_ADMIN_PASSWORD 环境变量提供至少 12 位的新密码",
+    `请通过 RADAR_ADMIN_PASSWORD 环境变量提供至少 ${MIN_ADMIN_PASSWORD_LENGTH} 位的新密码`,
   );
   process.exitCode = 1;
 } else {

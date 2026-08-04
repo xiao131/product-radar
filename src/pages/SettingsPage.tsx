@@ -19,6 +19,7 @@ import type {
   RuntimeSettings,
   RuntimeSettingsUpdate,
 } from "../../shared/types";
+import { MIN_ADMIN_PASSWORD_LENGTH } from "../../shared/auth";
 import { api } from "../api";
 import { LanguageSwitch, useI18n } from "../i18n";
 import { ErrorState, Field, LoadingState } from "../components";
@@ -312,13 +313,16 @@ export function SettingsPage() {
                 </Field>
                 <Field
                   label={t("新密码", "New password")}
-                  hint={t("不修改密码时留空；至少 12 个字符。", "Leave blank to keep it unchanged; at least 12 characters.")}
+                  hint={t(
+                    `不修改密码时留空；至少 ${MIN_ADMIN_PASSWORD_LENGTH} 个字符。`,
+                    `Leave blank to keep it unchanged; at least ${MIN_ADMIN_PASSWORD_LENGTH} characters.`,
+                  )}
                 >
                   <input
                     name="newPassword"
                     type="password"
                     autoComplete="new-password"
-                    minLength={12}
+                    minLength={MIN_ADMIN_PASSWORD_LENGTH}
                     maxLength={300}
                     value={accountForm.newPassword}
                     onChange={(event) => {
@@ -335,7 +339,11 @@ export function SettingsPage() {
                     name="confirmPassword"
                     type="password"
                     autoComplete="new-password"
-                    minLength={accountForm.newPassword ? 12 : undefined}
+                    minLength={
+                      accountForm.newPassword
+                        ? MIN_ADMIN_PASSWORD_LENGTH
+                        : undefined
+                    }
                     maxLength={300}
                     value={accountForm.confirmPassword}
                     onChange={(event) => {
