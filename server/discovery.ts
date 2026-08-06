@@ -1020,8 +1020,7 @@ export async function runAutomaticDiscovery(
         .prepare(
           `SELECT *
            FROM signals
-           WHERE auto_collected = 1
-             AND opportunity_id IS NULL
+           WHERE opportunity_id IS NULL
              AND status = 'NEW'
            ORDER BY updated_at DESC
            LIMIT 1000`,

@@ -2049,8 +2049,7 @@ export function createApp(db: RadarDatabase, config: AppConfig) {
         `SELECT
            MAX(updated_at) AS latest_updated_at,
            SUM(CASE
-             WHEN auto_collected = 1
-              AND opportunity_id IS NULL
+             WHEN opportunity_id IS NULL
               AND ai_reviewed_at IS NULL
              THEN 1 ELSE 0
            END) AS waiting_ai
